@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>REGATTA SCORER</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, onSnapshot, orderBy, query } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyA4NTkUqDCA62TisMTpqJARo1UlkI8b4fA",
+  authDomain: "regatta-scorer-f93b9.firebaseapp.com",
+  projectId: "regatta-scorer-f93b9",
+  storageBucket: "regatta-scorer-f93b9.firebasestorage.app",
+  messagingSenderId: "560965153092",
+  appId: "1:560965153092:web:3a733bd0a5031c0bf02711"
+};
+
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+
+// ── CONSTANTS ────────────────────────────────────────────────────────────────
+const PENALTY_STATUSES = ['DNS','DNC','OCS','DNF','RET','DSQ','BFD','UFD','DNE'];
+const NON_EXCLUDABLE   = ['DNE'];
+const CURRENT_DOC_ID   = '_current';
+
+// ── STATE ────────────────────────────────────────────────────────────────────
+let state = { seriesName:'', totalRaces:7, throwouts:1, zfpPct:20, boats:[], races:[] };
+let editingRaceIndex = null;
+let currentRanked    = [];
+let currentUnranked  = [];
+let syncTimer        = null;
+let viewingEventId   = null;
+let unsubscribe      = null;
+
+// ── FIREBASE: save current ───────────────────────────────────────────────────
+function scheduleSave() {
+  setSyncStatus('saving','保存中...');
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(async () => {
+    try {
+      await setDoc(doc(db,'events', CURRENT_DOC_ID), { ...state, _updatedAt: Date.now() });
+      setSyncStatus('ok','自動保存: '+new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}));
+    } catch(e) {
+      setSyncStatus('err','保存失敗: '+e.message);
+    }
+  }, 1200);
+}
+
+// ── FIREBASE: save as named event ─────────────────────────────────────────────
+async function saveAsEvent() {
+  const name = state.seriesName.trim();
+  if (!name) { showToast('先に大会名を入力してください'); switchTab('setup'); return; }
+  const btn = document.getElementById('saveEventBtn');
+  btn.disabled = true; btn.textContent = '保存中...';
+  try {
+    const id = 'evt_' + Date.now();
+    await setDoc(doc(db,'events', id), { ...state, _savedAt: Date.now() });
+    setSyncStatus('ok','「'+name+'」を保存しました');
+    showToast('☁ 大会データを保存しました');
+    renderEventList();
+  } catch(e) { showToast('保存失敗: '+e.message); }
+  finally { btn.disabled=false; btn.textContent='💾 大会として保存'; }
+}
+
+// ── FIREBASE: load event list ─────────────────────────────────────────────────
+async function renderEventList() {
+  const el = document.getElementById('eventList');
+  el.innerHTML = '<div class="drive-status"><span class="drive-spinner"></span>読み込み中...</div>';
+  try {
+    const snap = await getDocs(collection(db,'events'));
+    const events = [];
+    snap.forEach(d => { if (d.id !== CURRENT_DOC_ID) events.push({id:d.id,...d.data()}); });
+    events.sort((a,b)=>(b._savedAt||0)-(a._savedAt||0));
+    if (events.length===0) { el.innerHTML='<div class="drive-status">保存済みの大会がありません</div>'; return; }
+    el.innerHTML = events.map(ev => {
+      const dt = ev._savedAt ? new Date(ev._savedAt) : null;
+      const ds = dt ? `${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')}` : '';
+      const raceCount = (ev.races||[]).length;
+      const boatCount = (ev.boats||[]).length;
+      return `<div class="drive-item" onclick="openViewEvent('${ev.id}')">
+        <span style="font-size:1.1rem">🏆</span>
+        <div style="flex:1;min-width:0;">
+          <div class="drive-item-name">${escHtml(ev.seriesName||'無題')}</div>
+          <div style="font-size:0.7rem;color:var(--muted);">${boatCount}艇 / ${raceCount}レース</div>
+        </div>
+        <span class="drive-item-date">${ds}</span>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="drive-status">読み込み失敗: '+e.message+'</div>';
+  }
+}
+
+// ── FIREBASE: view event ──────────────────────────────────────────────────────
+async function openViewEvent(id) {
+  viewingEventId = id;
+  document.getElementById('viewEventTitle').textContent = '読み込み中...';
+  document.getElementById('viewEventResults').innerHTML = '<div class="drive-status"><span class="drive-spinner"></span></div>';
+  document.getElementById('viewEventModal').classList.add('open');
+  try {
+    const snap = await getDoc(doc(db,'events',id));
+    if (!snap.exists()) { showToast('データが見つかりません'); closeViewEvent(); return; }
+    const ev = snap.data();
+    migrateState(ev);
+    document.getElementById('viewEventTitle').textContent = ev.seriesName||'無題';
+    const html = buildResultsHTML(ev);
+    document.getElementById('viewEventResults').innerHTML = html||'<div class="drive-status">データなし</div>';
+  } catch(e) {
+    document.getElementById('viewEventResults').innerHTML = '<div class="drive-status">読み込み失敗</div>';
+  }
+}
+function closeViewEvent() { document.getElementById('viewEventModal').classList.remove('open'); viewingEventId=null; }
+
+async function loadViewEvent() {
+  if (!viewingEventId) return;
+  if (!confirm('この大会データを開きますか？\n現在の入力内容は上書きされます。')) return;
+  try {
+    const snap = await getDoc(doc(db,'events',viewingEventId));
+    const ev = snap.data();
+    migrateState(ev);
+    state = ev;
+    delete state._savedAt; delete state._updatedAt;
+    localStorage.setItem('regattaScorer3', JSON.stringify(state));
+    applyStateToUI();
+    closeViewEvent();
+    closeDriveModal();
+    showToast('大会データを読み込みました');
+  } catch(e) { showToast('読み込み失敗'); }
+}
+
+async function deleteViewEvent() {
+  if (!viewingEventId) return;
+  const title = document.getElementById('viewEventTitle').textContent;
+  if (!confirm(`「${title}」を削除しますか？`)) return;
+  try {
+    await deleteDoc(doc(db,'events',viewingEventId));
+    closeViewEvent();
+    renderEventList();
+    showToast('削除しました');
+  } catch(e) { showToast('削除失敗'); }
+}
+
+// リアルタイム同期（他の人が入力したら自動で反映）
+function startRealtimeSync() {
+  if (unsubscribe) unsubscribe();
+  unsubscribe = onSnapshot(doc(db,'events',CURRENT_DOC_ID), (snap) => {
+    if (!snap.exists()) return;
+    const remote = snap.data();
+    // 自分のsyncTimerが動いている間は無視（自分が書いている最中）
+    if (syncTimer) return;
+    const remoteTime = remote._updatedAt||0;
+    const localTime  = state._updatedAt||0;
+    if (remoteTime > localTime) {
+      migrateState(remote);
+      state = remote;
+      delete state._updatedAt;
+      localStorage.setItem('regattaScorer3', JSON.stringify(state));
+      applyStateToUI();
+      setSyncStatus('ok','他のユーザーが更新しました');
+    }
+  }, (err) => {
+    setSyncStatus('err','同期エラー');
+  });
+}
+
+// グローバルに公開
+window.openViewEvent  = openViewEvent;
+window.closeViewEvent = closeViewEvent;
+window.loadViewEvent  = loadViewEvent;
+window.deleteViewEvent= deleteViewEvent;
+window.saveAsEvent    = saveAsEvent;
+window.renderEventList= renderEventList;
+window.scheduleSave   = scheduleSave;
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+window.addEventListener('load', async () => {
+  // ローカルストレージから復元
+  try {
+    const raw = localStorage.getItem('regattaScorer3');
+    if (raw) { const s=JSON.parse(raw); migrateState(s); state=s; }
+  } catch(e) {}
+
+  // Firebaseから最新を取得
+  try {
+    const snap = await getDoc(doc(db,'events',CURRENT_DOC_ID));
+    if (snap.exists()) {
+      const remote = snap.data();
+      const remoteTime = remote._updatedAt||0;
+      const localTime  = state._updatedAt||0;
+      if (remoteTime >= localTime) {
+        migrateState(remote);
+        state = remote;
+        delete state._updatedAt;
+      }
+    }
+    setSyncStatus('ok','接続済み');
+    startRealtimeSync();
+  } catch(e) {
+    setSyncStatus('err','オフライン（ローカルデータを使用中）');
+  }
+
+  localStorage.setItem('regattaScorer3', JSON.stringify(state));
+  applyStateToUI();
+});
+
+</script>
+<style>
+:root{--navy:#0a1628;--deep:#0d1f3c;--ocean:#0e3460;--foam:#2e86ab;--sky:#a8dadc;--salt:#f1faee;--gold:#e9c46a;--red:#e63946;--green:#52b788;--muted:#4a6484;--border:rgba(46,134,171,0.25);}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{overflow-x:hidden;max-width:100vw;}
+body{background:var(--navy);color:var(--salt);font-family:'DM Sans',sans-serif;min-height:100vh;}
+body::before{content:'';position:fixed;bottom:0;left:0;right:0;height:300px;background:linear-gradient(180deg,transparent 0%,rgba(14,52,96,0.4) 100%);pointer-events:none;z-index:0;}
+header{background:linear-gradient(135deg,var(--deep) 0%,var(--ocean) 100%);border-bottom:2px solid var(--foam);padding:0 1rem;position:sticky;top:0;z-index:100;box-shadow:0 4px 30px rgba(0,0,0,0.5);}
+.header-inner{max-width:1400px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px;gap:0.5rem;}
+.logo{font-family:'Bebas Neue',sans-serif;font-size:1.6rem;letter-spacing:0.12em;color:var(--sky);display:flex;align-items:center;gap:0.3rem;white-space:nowrap;flex-shrink:0;}
+.logo span{color:var(--gold);}
+.header-actions{display:flex;gap:0.35rem;align-items:center;flex-shrink:0;}
+@media(max-width:420px){.logo{font-size:1.1rem;}.btn{font-size:0.7rem;padding:0.38rem 0.55rem;}}
+.main{max-width:1400px;margin:0 auto;padding:1.1rem;position:relative;z-index:1;}
+.panel{background:linear-gradient(135deg,rgba(13,31,60,0.95) 0%,rgba(10,22,40,0.95) 100%);border:1px solid var(--border);border-radius:12px;padding:1.1rem;margin-bottom:1.1rem;backdrop-filter:blur(10px);}
+.panel-title{font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.12em;color:var(--sky);margin-bottom:0.9rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;}
+.panel-title::before{content:'';display:block;width:3px;height:1em;background:var(--foam);border-radius:2px;flex-shrink:0;}
+.setup-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;}
+@media(max-width:520px){.setup-grid{grid-template-columns:1fr;}}
+label{display:block;font-size:0.7rem;font-weight:500;color:var(--sky);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:0.3rem;}
+input[type=text],input[type=number],select{width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:6px;padding:0.5rem 0.75rem;color:var(--salt);font-family:'DM Mono',monospace;font-size:0.86rem;transition:border-color 0.2s,background 0.2s;outline:none;}
+input:focus,select:focus{border-color:var(--foam);background:rgba(46,134,171,0.1);}
+select option{background:var(--deep);}
+.boats-list{display:flex;flex-wrap:wrap;gap:0.45rem;margin-top:0.55rem;}
+.boat-tag{background:rgba(46,134,171,0.15);border:1px solid var(--border);border-radius:20px;padding:0.22rem 0.7rem 0.22rem 0.85rem;font-size:0.8rem;color:var(--sky);display:flex;align-items:center;gap:0.35rem;font-family:'DM Mono',monospace;}
+.boat-tag .edit-name{background:transparent;border:none;border-bottom:1px dashed rgba(168,218,220,0.4);color:var(--sky);font-family:'DM Mono',monospace;font-size:0.8rem;width:auto;min-width:40px;max-width:130px;outline:none;padding:0;}
+.boat-tag .edit-name:focus{border-bottom-color:var(--foam);}
+.boat-tag button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:0.9rem;line-height:1;padding:0;transition:color 0.15s;}
+.boat-tag button:hover{color:var(--red);}
+.add-row{display:flex;gap:0.45rem;margin-bottom:0.4rem;}
+.add-row input{flex:1;}
+.btn{font-family:'DM Sans',sans-serif;font-weight:500;font-size:0.8rem;padding:0.48rem 1rem;border-radius:6px;border:none;cursor:pointer;transition:all 0.15s;letter-spacing:0.02em;white-space:nowrap;}
+.btn-primary{background:var(--foam);color:var(--navy);}
+.btn-primary:hover{background:var(--sky);transform:translateY(-1px);}
+.btn-secondary{background:rgba(46,134,171,0.15);color:var(--sky);border:1px solid var(--border);}
+.btn-secondary:hover{background:rgba(46,134,171,0.3);}
+.btn-danger{background:rgba(230,57,70,0.15);color:#ff6b7a;border:1px solid rgba(230,57,70,0.3);}
+.btn-danger:hover{background:rgba(230,57,70,0.3);}
+.btn-gold{background:var(--gold);color:var(--navy);font-weight:600;}
+.btn-gold:hover{background:#f4d483;transform:translateY(-1px);}
+.btn-cloud{background:rgba(66,133,244,0.2);color:#7ab4ff;border:1px solid rgba(66,133,244,0.3);}
+.btn-cloud:hover{background:rgba(66,133,244,0.35);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;transform:none!important;}
+/* sync bar */
+.sync-bar{display:flex;align-items:center;gap:0.5rem;font-size:0.72rem;color:var(--muted);padding:0.4rem 0.75rem;background:rgba(255,255,255,0.03);border-bottom:1px solid var(--border);}
+.sync-dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background 0.3s;}
+.sync-dot.ok{background:var(--green);}
+.sync-dot.saving{background:var(--gold);animation:pulse 1s infinite;}
+.sync-dot.err{background:var(--red);}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
+.tabs{display:flex;gap:0.2rem;background:rgba(0,0,0,0.3);padding:0.22rem;border-radius:8px;margin-bottom:1.1rem;}
+.tab{flex:1;padding:0.5rem 0.4rem;border:none;border-radius:6px;background:none;color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;font-size:0.8rem;font-weight:500;transition:all 0.15s;text-align:center;}
+.tab.active{background:var(--ocean);color:var(--sky);box-shadow:0 2px 8px rgba(0,0,0,0.3);}
+.tab-content{display:none;}
+.tab-content.active{display:block;}
+/* ENTRY */
+.race-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;}
+.race-num{font-family:'Bebas Neue',sans-serif;font-size:1.4rem;color:var(--gold);letter-spacing:0.1em;}
+.finish-layout{display:grid;grid-template-columns:1fr 1fr;gap:0.9rem;align-items:start;}
+@media(max-width:560px){.finish-layout{grid-template-columns:1fr;}}
+.finish-section-label{font-size:0.68rem;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.45rem;}
+.unranked-pool{display:flex;flex-direction:column;gap:0.35rem;min-height:50px;}
+.boat-btn{display:flex;align-items:center;gap:0.65rem;background:rgba(46,134,171,0.12);border:1.5px solid var(--border);border-radius:8px;padding:0.65rem 0.9rem;color:var(--salt);font-family:'DM Mono',monospace;font-size:0.88rem;cursor:pointer;transition:all 0.15s;text-align:left;width:100%;position:relative;overflow:hidden;}
+.boat-btn::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,rgba(46,134,171,0.2) 0%,transparent 100%);opacity:0;transition:opacity 0.15s;}
+.boat-btn:hover{border-color:var(--foam);transform:translateX(3px);}
+.boat-btn:hover::before{opacity:1;}
+.boat-btn:active{transform:scale(0.98);}
+.boat-btn .boat-dot{width:7px;height:7px;border-radius:50%;background:var(--foam);flex-shrink:0;}
+.tap-hint{font-size:0.68rem;color:var(--muted);margin-left:auto;flex-shrink:0;}
+.penalty-select{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:var(--muted);font-size:0.7rem;padding:0.18rem 0.28rem;cursor:pointer;font-family:'DM Mono',monospace;width:auto;flex-shrink:0;}
+.penalty-select:focus{outline:none;border-color:var(--foam);}
+.ranked-list{display:flex;flex-direction:column;gap:0.3rem;min-height:50px;}
+.ranked-item{display:flex;align-items:center;gap:0.55rem;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:0.55rem 0.8rem;animation:slideIn 0.16s ease;}
+@keyframes slideIn{from{opacity:0;transform:translateY(-5px);}to{opacity:1;transform:translateY(0);}}
+.rank-num{font-family:'Bebas Neue',sans-serif;font-size:1.05rem;min-width:22px;text-align:center;}
+.rank-1-c{color:var(--gold);}.rank-2-c{color:var(--sky);}.rank-3-c{color:var(--green);}.rank-n-c{color:var(--muted);}
+.ranked-boat-name{font-family:'DM Mono',monospace;font-size:0.86rem;flex:1;}
+.ranked-status{font-size:0.66rem;padding:0.1rem 0.32rem;border-radius:3px;letter-spacing:0.04em;}
+.rs-dns,.rs-dnf{background:rgba(230,57,70,0.2);color:#ff8f9a;}
+.rs-dnc{background:rgba(100,100,100,0.3);color:#aaa;}
+.rs-ocs{background:rgba(233,196,106,0.2);color:var(--gold);}
+.rs-dsq,.rs-bfd,.rs-ufd{background:rgba(230,57,70,0.35);color:#ff6b7a;}
+.rs-ret{background:rgba(150,100,50,0.3);color:#c8956a;}
+.rs-dne{background:rgba(180,0,180,0.25);color:#e89eff;}
+.rs-zfp{background:rgba(130,80,200,0.2);color:#c4a0ff;}
+.undo-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:0.82rem;padding:0.12rem 0.22rem;border-radius:4px;transition:all 0.15s;line-height:1;flex-shrink:0;}
+.undo-btn:hover{color:var(--red);background:rgba(230,57,70,0.1);}
+.progress-bar-wrap{height:3px;background:rgba(255,255,255,0.07);border-radius:2px;margin-bottom:0.7rem;overflow:hidden;}
+.progress-bar{height:100%;background:linear-gradient(90deg,var(--foam),var(--sky));border-radius:2px;transition:width 0.3s ease;}
+.code-legend{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:0.18rem 1rem;font-size:0.75rem;color:var(--muted);line-height:1.7;}
+.code-legend b{color:var(--sky);}
+/* RESULTS */
+.results-wrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;font-size:0.82rem;min-width:420px;}
+th{font-family:'DM Mono',monospace;font-size:0.66rem;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;padding:0.5rem 0.65rem;text-align:center;border-bottom:1px solid var(--border);white-space:nowrap;}
+th.left{text-align:left;}
+td{padding:0.46rem 0.65rem;text-align:center;border-bottom:1px solid rgba(46,134,171,0.08);font-family:'DM Mono',monospace;vertical-align:middle;}
+td.left{text-align:left;font-family:'DM Sans',sans-serif;}
+tr:hover td{background:rgba(46,134,171,0.04);}
+tr.winner td{background:rgba(233,196,106,0.06);}
+tr.winner td.left{color:var(--gold);font-weight:500;}
+.rank-badge{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;font-family:'Bebas Neue',sans-serif;font-size:0.9rem;}
+.rank-1{background:var(--gold);color:var(--navy);}
+.rank-2{background:var(--sky);color:var(--navy);}
+.rank-3{background:var(--green);color:var(--navy);}
+.rank-n{background:rgba(255,255,255,0.1);color:var(--muted);}
+.score-cell{font-weight:500;font-size:0.9rem;}
+.score-cell.total{font-size:1rem;color:var(--gold);}
+.throwout{position:relative;color:var(--muted);}
+.throwout::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:80%;height:1px;background:var(--muted);}
+.status-badge{font-size:0.66rem;padding:0.1rem 0.32rem;border-radius:3px;letter-spacing:0.04em;}
+.s-dns,.s-dnf{background:rgba(230,57,70,0.2);color:#ff8f9a;}
+.s-dnc{background:rgba(100,100,100,0.3);color:#aaa;}
+.s-ocs{background:rgba(233,196,106,0.2);color:var(--gold);}
+.s-dsq,.s-bfd,.s-ufd{background:rgba(230,57,70,0.35);color:#ff6b7a;}
+.s-ret{background:rgba(150,100,50,0.3);color:#c8956a;}
+.s-dne{background:rgba(180,0,180,0.25);color:#e89eff;}
+.s-zfp{background:rgba(130,80,200,0.2);color:#c4a0ff;}
+/* MODALS */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:200;backdrop-filter:blur(4px);overflow-y:auto;padding:1.5rem 1rem;align-items:flex-start;justify-content:center;}
+.modal-overlay.open{display:flex;}
+.modal{background:var(--deep);border:1px solid var(--border);border-radius:12px;padding:1.4rem;width:100%;max-width:540px;box-shadow:0 20px 60px rgba(0,0,0,0.6);}
+.modal-title{font-family:'Bebas Neue',sans-serif;font-size:1.25rem;letter-spacing:0.1em;color:var(--gold);margin-bottom:1rem;}
+.modal-actions{display:flex;gap:0.45rem;justify-content:flex-end;margin-top:1rem;flex-wrap:wrap;}
+/* Cloud modal */
+.cloud-tabs{display:flex;gap:0.2rem;background:rgba(0,0,0,0.25);padding:0.2rem;border-radius:7px;margin-bottom:0.9rem;}
+.cloud-tab{flex:1;padding:0.45rem;border:none;border-radius:5px;background:none;color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;font-size:0.78rem;font-weight:500;transition:all 0.15s;text-align:center;}
+.cloud-tab.active{background:rgba(66,133,244,0.25);color:#7ab4ff;}
+.cloud-tab-content{display:none;}
+.cloud-tab-content.active{display:block;}
+.drive-list{display:flex;flex-direction:column;gap:0.45rem;max-height:340px;overflow-y:auto;}
+.drive-item{display:flex;align-items:center;gap:0.7rem;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:0.7rem 0.9rem;cursor:pointer;transition:all 0.15s;}
+.drive-item:hover{background:rgba(46,134,171,0.1);border-color:var(--foam);}
+.drive-item-name{font-family:'DM Mono',monospace;font-size:0.82rem;font-weight:500;color:var(--salt);}
+.drive-item-date{font-size:0.7rem;color:var(--muted);white-space:nowrap;flex-shrink:0;}
+.drive-status{font-size:0.8rem;color:var(--muted);text-align:center;padding:1.5rem;font-style:italic;}
+.drive-spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(168,218,220,0.2);border-top-color:var(--sky);border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:0.3rem;}
+@keyframes spin{to{transform:rotate(360deg);}}
+/* race/edit rows */
+.race-card{background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:0.8rem 1rem;display:flex;align-items:center;justify-content:space-between;gap:0.7rem;flex-wrap:wrap;margin-bottom:0.5rem;}
+.race-card-info{display:flex;align-items:center;gap:0.7rem;flex-wrap:wrap;}
+.race-pill{font-family:'Bebas Neue',sans-serif;font-size:0.85rem;letter-spacing:0.1em;background:var(--ocean);padding:0.15rem 0.55rem;border-radius:4px;color:var(--sky);}
+.race-summary{font-size:0.76rem;color:var(--muted);font-family:'DM Mono',monospace;}
+.edit-row{display:flex;align-items:center;gap:0.45rem;padding:0.32rem 0;border-bottom:1px solid rgba(255,255,255,0.05);}
+.edit-row:last-child{border-bottom:none;}
+.edit-boat-name{flex:1;font-family:'DM Mono',monospace;font-size:0.85rem;}
+.edit-rank-input{width:52px;text-align:center;font-size:0.88rem;padding:0.32rem 0.28rem;}
+.edit-status-select{font-size:0.76rem;padding:0.32rem 0.28rem;}
+/* handicap */
+.boat-throwout-row{display:flex;align-items:center;gap:0.5rem;padding:0.28rem 0;border-bottom:1px solid rgba(255,255,255,0.04);}
+.boat-throwout-row:last-child{border-bottom:none;}
+.bt-name{flex:1;font-family:'DM Mono',monospace;color:var(--sky);font-size:0.82rem;}
+.bt-input{width:56px;text-align:center;padding:0.28rem 0.35rem;font-size:0.82rem;}
+.bt-hint{font-size:0.7rem;color:var(--muted);white-space:nowrap;min-width:72px;}
+.throwout-info{font-size:0.74rem;color:var(--muted);background:rgba(255,255,255,0.03);border-radius:5px;padding:0.45rem 0.75rem;margin-top:0.38rem;font-family:'DM Mono',monospace;line-height:1.6;}
+.highlight{color:var(--sky);}
+.empty{text-align:center;padding:2.2rem 1rem;color:var(--muted);font-size:0.86rem;}
+.empty-icon{font-size:2rem;margin-bottom:0.55rem;opacity:0.4;}
+.tiebreak-note{font-size:0.68rem;color:var(--muted);font-style:italic;margin-top:0.28rem;}
+.toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%) translateY(100px);background:var(--deep);border:1px solid var(--foam);border-radius:8px;padding:0.6rem 1.3rem;color:var(--sky);font-size:0.8rem;transition:transform 0.3s ease;z-index:999;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,0.4);}
+.toast.show{transform:translateX(-50%) translateY(0);}
+#pngCapture{position:fixed;left:-9999px;top:0;background:#0a1628;padding:24px;min-width:600px;z-index:-1;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo">⛵ REGATTA <span>SCORER</span></div>
+    <div class="header-actions">
+      <button class="btn btn-cloud" onclick="openCloudModal()">☁ 大会</button>
+      <button class="btn btn-secondary" onclick="exportPNG()">PNG</button>
+      <button class="btn btn-danger" onclick="resetAll()">リセット</button>
+    </div>
+  </div>
+</header>
+
+<!-- sync bar -->
+<div class="sync-bar">
+  <div class="sync-dot" id="syncDot"></div>
+  <span id="syncLabel">接続中...</span>
+</div>
+
+<div class="main">
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('setup')">⚙ 設定</button>
+    <button class="tab" onclick="switchTab('entry')">✚ 入力</button>
+    <button class="tab" onclick="switchTab('results')">🏆 成績表</button>
+  </div>
+
+  <!-- SETUP -->
+  <div class="tab-content active" id="tab-setup">
+    <div class="panel">
+      <div class="panel-title">シリーズ設定</div>
+      <div class="setup-grid">
+        <div><label>大会名</label><input type="text" id="seriesName" placeholder="2025 Summer Series" oninput="saveState()"></div>
+        <div><label>合計レース予定数</label><input type="number" id="totalRaces" min="1" max="99" value="7" oninput="updateThrowoutInfo();saveState()"></div>
+        <div>
+          <label>捨てレース数（Throwout）</label>
+          <input type="number" id="throwouts" min="0" max="10" value="1" oninput="updateThrowoutInfo();saveState()">
+          <div class="throwout-info" id="throwoutInfo"></div>
+        </div>
+        <div><label>ZFPペナルティ割合（%）</label><input type="number" id="zfpPct" min="1" max="100" value="20" oninput="saveState()"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">参加艇登録</div>
+      <div class="add-row">
+        <input type="text" id="boatInput" placeholder="艇名を入力" onkeydown="if(event.key==='Enter')addBoat()">
+        <button class="btn btn-primary" onclick="addBoat()">追加</button>
+      </div>
+      <div class="boats-list" id="boatsList"></div>
+    </div>
+    <div class="panel" id="handicapPanel" style="display:none;">
+      <div class="panel-title">個別捨てレース設定（ハンデ）<span style="font-size:0.7rem;color:var(--muted);font-family:'DM Sans';letter-spacing:0;margin-left:0.5rem;">空欄=共通設定</span></div>
+      <div id="boatThrowoutList"></div>
+    </div>
+  </div>
+
+  <!-- ENTRY -->
+  <div class="tab-content" id="tab-entry">
+    <div class="panel">
+      <div class="race-header">
+        <span class="race-num" id="raceNumLabel">RACE #1</span>
+        <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+          <button class="btn btn-secondary" onclick="openRaceListModal()">過去レース編集</button>
+          <button class="btn btn-gold" onclick="saveRace()" id="saveBtn">保存</button>
+        </div>
+      </div>
+      <div class="progress-bar-wrap"><div class="progress-bar" id="progressBar" style="width:0%"></div></div>
+      <div id="entryArea">
+        <div class="finish-layout">
+          <div>
+            <div class="finish-section-label">タップして順位をつける ↓</div>
+            <div class="unranked-pool" id="unrankedPool"></div>
+          </div>
+          <div>
+            <div class="finish-section-label">フィニッシュ順</div>
+            <div class="ranked-list" id="rankedList"></div>
+          </div>
+        </div>
+      </div>
+      <div class="empty" id="entryEmpty" style="display:none;"><div class="empty-icon">⚓</div>設定タブで艇を登録してください</div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">ステータスコード</div>
+      <div class="code-legend">
+        <span><b>DNS</b> Did Not Start</span><span><b>DNC</b> Did Not Come</span>
+        <span><b>OCS</b> フライング</span><span><b>DNF</b> Did Not Finish</span>
+        <span><b>RET</b> Retired</span><span><b>DSQ</b> Disqualification</span>
+        <span><b>BFD</b> 黒旗失格</span><span><b>UFD</b> U旗失格</span>
+        <span><b>DNE</b> 除外不可失格</span><span><b>ZFP</b> Z旗ペナルティ（<span id="zfpLabel2">20</span>%）</span>
+      </div>
+      <p style="font-size:0.72rem;color:var(--muted);margin-top:0.55rem;">DNS〜DNE → 出走艇数＋1点。<b style="color:#e89eff">DNEは捨てレース不可（RRS 90.3b）</b>。ZFP → <span id="zfpLabel">20</span>%加算。</p>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div class="tab-content" id="tab-results">
+    <div class="panel">
+      <div class="panel-title" id="resultsPanelTitle">シリーズ成績表</div>
+      <div class="results-wrap"><div id="resultsTable"></div></div>
+      <div class="tiebreak-note">※ タイブレーク：A8.1 成績を良い順に比較（捨てレース除く）→ A8.2 最終レースから遡る</div>
+    </div>
+  </div>
+</div>
+
+<!-- Cloud modal -->
+<div class="modal-overlay" id="cloudModal" onclick="if(event.target===this)closeCloudModal()">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-title">☁ 大会データ管理</div>
+    <div class="cloud-tabs">
+      <button class="cloud-tab active" onclick="switchCloudTab('save')">今の大会を保存</button>
+      <button class="cloud-tab" onclick="switchCloudTab('list')">過去の大会一覧</button>
+    </div>
+    <div class="cloud-tab-content active" id="ctab-save">
+      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:0.4rem;">入力中のデータはリアルタイムで自動保存されています。</p>
+      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:0.9rem;">大会が終わったら「大会として保存」で過去一覧に残せます。</p>
+      <button class="btn btn-cloud" id="saveEventBtn" onclick="saveAsEvent()">💾 大会として保存</button>
+    </div>
+    <div class="cloud-tab-content" id="ctab-list">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:0.6rem;">
+        <button class="btn btn-secondary" onclick="renderEventList()" style="font-size:0.74rem;padding:0.32rem 0.7rem;">↺ 更新</button>
+      </div>
+      <div class="drive-list" id="eventList">
+        <div class="drive-status"><span class="drive-spinner"></span>読み込み中...</div>
+      </div>
+    </div>
+    <div class="modal-actions"><button class="btn btn-secondary" onclick="closeCloudModal()">閉じる</button></div>
+  </div>
+</div>
+
+<!-- View past event modal -->
+<div class="modal-overlay" id="viewEventModal" onclick="if(event.target===this)closeViewEvent()">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-title" id="viewEventTitle">大会成績</div>
+    <div class="results-wrap" id="viewEventResults"></div>
+    <div class="tiebreak-note" style="margin-top:0.3rem;">※ タイブレーク：A8.1→A8.2</div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" onclick="deleteViewEvent()" style="margin-right:auto;">削除</button>
+      <button class="btn btn-secondary" onclick="loadViewEvent()">この大会を開く</button>
+      <button class="btn btn-secondary" onclick="closeViewEvent()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- Race list modal -->
+<div class="modal-overlay" id="raceListModal" onclick="if(event.target===this)closeRaceListModal()">
+  <div class="modal">
+    <div class="modal-title">過去レースの編集</div>
+    <div id="raceListContent"></div>
+    <div class="modal-actions"><button class="btn btn-secondary" onclick="closeRaceListModal()">閉じる</button></div>
+  </div>
+</div>
+
+<!-- Edit race modal -->
+<div class="modal-overlay" id="editRaceModal" onclick="if(event.target===this)closeEditRace()">
+  <div class="modal">
+    <div class="modal-title" id="editRaceTitle">RACE 編集</div>
+    <div style="font-size:0.74rem;color:var(--muted);margin-bottom:0.7rem;">順位またはステータスを変更できます</div>
+    <div id="editRaceForm"></div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" onclick="deleteRace()" style="margin-right:auto;">削除</button>
+      <button class="btn btn-secondary" onclick="closeEditRace()">キャンセル</button>
+      <button class="btn btn-gold" onclick="saveEditRace()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="pngCapture"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ── GLOBALS (Firebase functions assigned from module) ─────────────────────
+// scheduleSave, saveAsEvent, renderEventList, openViewEvent,
+// closeViewEvent, loadViewEvent, deleteViewEvent are set by the module above
+
+// ── STATE (non-Firebase) ───────────────────────────────────────────────────
+const PENALTY_STATUSES = ['DNS','DNC','OCS','DNF','RET','DSQ','BFD','UFD','DNE'];
+const NON_EXCLUDABLE   = ['DNE'];
+let state = { seriesName:'', totalRaces:7, throwouts:1, zfpPct:20, boats:[], races:[] };
+let editingRaceIndex = null;
+let currentRanked    = [];
+let currentUnranked  = [];
+
+function setSyncStatus(status, msg) {
+  const dot=document.getElementById('syncDot');
+  const lbl=document.getElementById('syncLabel');
+  if(dot) dot.className='sync-dot '+status;
+  if(lbl) lbl.textContent=msg;
+}
+
+// ── MIGRATE ────────────────────────────────────────────────────────────────
+function migrateState(s) {
+  if (!s.boats) s.boats=[];
+  if (!s.races) s.races=[];
+  if (s.boats.length && typeof s.boats[0]==='string')
+    s.boats=s.boats.map((n,i)=>({id:'b'+i,name:n,throwoutOverride:null}));
+  s.boats.forEach(b=>{ if(!('throwoutOverride' in b)) b.throwoutOverride=null; });
+  if (s.races.length && s.races[0].entries?.length && typeof s.races[0].entries[0].boat==='string')
+    s.races.forEach(r=>{r.entries=r.entries.map(e=>{const f=s.boats.find(b=>b.name===e.boat);return{boatId:f?f.id:e.boat,rank:e.rank,status:e.status};});});
+}
+
+// ── SAVE ──────────────────────────────────────────────────────────────────
+function saveState() {
+  state.seriesName=document.getElementById('seriesName').value;
+  state.totalRaces=parseInt(document.getElementById('totalRaces').value)||7;
+  state.throwouts =parseInt(document.getElementById('throwouts').value)||0;
+  state.zfpPct    =parseInt(document.getElementById('zfpPct').value)||20;
+  updateZfpLabels();
+  localStorage.setItem('regattaScorer3', JSON.stringify(state));
+  renderResults(); updateResultsPanelTitle();
+  if (typeof scheduleSave==='function') scheduleSave();
+}
+
+// ── RESET ──────────────────────────────────────────────────────────────────
+function resetAll() {
+  if (!confirm('現在の入力内容をリセットしますか？\n（保存済みの過去大会は削除されません）')) return;
+  state={seriesName:'',totalRaces:7,throwouts:1,zfpPct:20,boats:[],races:[]};
+  localStorage.removeItem('regattaScorer3');
+  document.getElementById('seriesName').value='';
+  document.getElementById('totalRaces').value=7;
+  document.getElementById('throwouts').value=1;
+  document.getElementById('zfpPct').value=20;
+  updateZfpLabels(); updateThrowoutInfo();
+  renderBoatsList(); resetEntrySession(); renderResults(); updateResultsPanelTitle();
+  showToast('リセットしました');
+  if (typeof scheduleSave==='function') scheduleSave();
+}
+
+// ── APPLY UI ───────────────────────────────────────────────────────────────
+function applyStateToUI() {
+  document.getElementById('seriesName').value =state.seriesName||'';
+  document.getElementById('totalRaces').value =state.totalRaces||7;
+  document.getElementById('throwouts').value  =state.throwouts??1;
+  document.getElementById('zfpPct').value     =state.zfpPct||20;
+  updateZfpLabels(); updateThrowoutInfo();
+  renderBoatsList(); resetEntrySession(); renderResults(); updateResultsPanelTitle();
+}
+
+function updateZfpLabels(){const v=state.zfpPct||20;document.getElementById('zfpLabel').textContent=v;document.getElementById('zfpLabel2').textContent=v;}
+function updateResultsPanelTitle(){document.getElementById('resultsPanelTitle').textContent=(state.seriesName||'シリーズ')+'　成績表';}
+function updateThrowoutInfo(){
+  const total=parseInt(document.getElementById('totalRaces').value)||0;
+  const t=parseInt(document.getElementById('throwouts').value)||0;
+  document.getElementById('throwoutInfo').innerHTML=t===0?'捨てレースなし'
+    :`全<span class="highlight">${total}</span>レース中、最悪<span class="highlight">${t}</span>レースを除外`;
+}
+
+// ── BOATS ──────────────────────────────────────────────────────────────────
+function genId(){return 'b'+Date.now()+Math.random().toString(36).slice(2,5);}
+
+function addBoat(){
+  const inp=document.getElementById('boatInput');
+  const name=inp.value.trim();
+  if (!name) return;
+  if (state.boats.some(b=>b.name===name)){showToast('同名の艇が既に登録されています');return;}
+  state.boats.push({id:genId(),name,throwoutOverride:null});
+  inp.value='';
+  saveState(); renderBoatsList(); resetEntrySession();
+}
+
+function removeBoat(id){
+  if (state.races.length>0){showToast('レース入力後は削除できません');return;}
+  state.boats=state.boats.filter(b=>b.id!==id);
+  saveState(); renderBoatsList(); resetEntrySession();
+}
+
+function renderBoatsList(){
+  const el=document.getElementById('boatsList');
+  if (!state.boats.length){
+    el.innerHTML='<span style="color:var(--muted);font-size:0.8rem;">まだ登録されていません</span>';
+    document.getElementById('handicapPanel').style.display='none';
+    return;
+  }
+  el.innerHTML=state.boats.map(b=>`
+    <div class="boat-tag">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--foam);flex-shrink:0;display:inline-block;"></span>
+      <input class="edit-name" type="text" value="${escHtml(b.name)}" data-id="${b.id}" title="クリックして編集">
+      ${state.races.length===0?`<button onclick="removeBoat('${b.id}')" title="削除">×</button>`:''}
+    </div>`).join('');
+  renderBoatThrowoutList();
+}
+
+// event delegation: boat rename (on change = blur/enter, no cursor jump)
+document.getElementById('boatsList').addEventListener('change', e=>{
+  if (!e.target.classList.contains('edit-name')) return;
+  const id=e.target.dataset.id, newName=e.target.value.trim();
+  if (!newName||!id) return;
+  const boat=state.boats.find(b=>b.id===id);
+  if (!boat||boat.name===newName) return;
+  boat.name=newName;
+  saveState(); renderEntryUI();
+});
+
+// handicap: event delegation (no re-render, no cursor jump)
+document.getElementById('boatThrowoutList').addEventListener('input', e=>{
+  if (!e.target.classList.contains('bt-input')) return;
+  const id=e.target.dataset.id, val=e.target.value;
+  const boat=state.boats.find(b=>b.id===id);
+  if (!boat) return;
+  boat.throwoutOverride = val===''?null:parseInt(val);
+  const hint=e.target.nextElementSibling;
+  if (hint) hint.textContent=val!==''?`捨て${val}レース`:`共通(${state.throwouts||0})`;
+  saveState();
+});
+
+function renderBoatThrowoutList(){
+  const panel=document.getElementById('handicapPanel');
+  const list=document.getElementById('boatThrowoutList');
+  if (!state.boats.length){panel.style.display='none';return;}
+  panel.style.display='block';
+  const globalT=state.throwouts||0;
+  list.innerHTML=state.boats.map(b=>{
+    const ov=b.throwoutOverride!=null?b.throwoutOverride:'';
+    return `<div class="boat-throwout-row">
+      <span class="bt-name">${escHtml(b.name)}</span>
+      <input type="number" class="bt-input" data-id="${b.id}" min="0" max="20" placeholder="${globalT}" value="${ov}">
+      <span class="bt-hint">${ov!==''?`捨て${ov}レース`:`共通(${globalT})`}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── ENTRY ──────────────────────────────────────────────────────────────────
+function resetEntrySession(){
+  document.getElementById('raceNumLabel').textContent=`RACE #${state.races.length+1}`;
+  currentRanked=[]; currentUnranked=state.boats.map(b=>b.id);
+  const has=state.boats.length>0;
+  document.getElementById('entryArea').style.display=has?'block':'none';
+  document.getElementById('entryEmpty').style.display=has?'none':'block';
+  document.getElementById('saveBtn').disabled=!has;
+  renderEntryUI();
+}
+
+function boatName(id){const b=state.boats.find(b=>b.id===id);return b?b.name:id;}
+
+function renderEntryUI(){
+  if (!state.boats.length) return;
+  document.getElementById('progressBar').style.width=Math.round(currentRanked.length/state.boats.length*100)+'%';
+  const penalties=['DNS','DNC','OCS','DNF','RET','DSQ','BFD','UFD','DNE','ZFP'];
+  const pool=document.getElementById('unrankedPool');
+  pool.innerHTML=currentUnranked.length===0
+    ?'<div style="color:var(--green);font-size:0.8rem;padding:0.45rem 0;">✓ 全艇入力済み</div>'
+    :currentUnranked.map(id=>`
+      <div class="boat-btn" onclick="tapBoat('${id}')">
+        <span class="boat-dot"></span>
+        <span style="flex:1">${escHtml(boatName(id))}</span>
+        <select class="penalty-select" id="ps_${id}" onclick="event.stopPropagation()" onchange="onPenaltyChange('${id}',this.value)">
+          <option value="">順位</option>
+          ${penalties.map(p=>`<option value="${p}">${p}</option>`).join('')}
+        </select>
+        <span class="tap-hint">TAP→</span>
+      </div>`).join('');
+  const list=document.getElementById('rankedList');
+  if (!currentRanked.length){list.innerHTML='<div style="color:var(--muted);font-size:0.78rem;padding:0.35rem 0;">まだフィニッシュなし</div>';return;}
+  let fp=0;
+  list.innerHTML=currentRanked.map((item,idx)=>{
+    const isP=PENALTY_STATUSES.includes(item.status);
+    if(!isP) fp++;
+    const dr=isP?'—':fp;
+    const rc=fp===1?'rank-1-c':fp===2?'rank-2-c':fp===3?'rank-3-c':'rank-n-c';
+    const sb=item.status?`<span class="ranked-status rs-${item.status.toLowerCase()}">${item.status}</span>`:'';
+    return `<div class="ranked-item">
+      <span class="rank-num ${isP?'rank-n-c':rc}">${dr}</span>
+      <span class="ranked-boat-name">${escHtml(boatName(item.boatId))}</span>${sb}
+      <button class="undo-btn" onclick="undoRanked(${idx})">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function tapBoat(id){
+  const psEl=document.getElementById(`ps_${id}`);
+  currentUnranked=currentUnranked.filter(x=>x!==id);
+  currentRanked.push({boatId:id,status:psEl?psEl.value:''});
+  renderEntryUI();
+}
+function onPenaltyChange(id,val){if(val!=='') setTimeout(()=>tapBoat(id),80);}
+function undoRanked(idx){
+  const item=currentRanked.splice(idx,1)[0];
+  const orig=state.boats.map(b=>b.id);
+  currentUnranked.push(item.boatId);
+  currentUnranked.sort((a,b)=>orig.indexOf(a)-orig.indexOf(b));
+  renderEntryUI();
+}
+
+function saveRace(){
+  if (!state.boats.length) return;
+  if (currentUnranked.length>0){showToast(`残り${currentUnranked.length}艇を入力してください`);return;}
+  let fp=0;
+  const entries=currentRanked.map(item=>{
+    const isP=PENALTY_STATUSES.includes(item.status);
+    if(!isP) fp++;
+    return{boatId:item.boatId,rank:isP?null:fp,status:item.status||''};
+  });
+  state.races.push({entries});
+  saveState(); resetEntrySession(); renderResults();
+  showToast(`Race #${state.races.length} を保存しました`);
+}
+
+// ── SCORING ────────────────────────────────────────────────────────────────
+function computeRaceScore(entry,n,zfpPct){
+  const p=n+1;
+  if(PENALTY_STATUSES.includes(entry.status)) return p;
+  if(!entry.rank) return p;
+  if(entry.status==='ZFP') return Math.min(Math.round(entry.rank*(1+zfpPct/100)*10)/10,p);
+  return entry.rank;
+}
+
+function computeSeriesFor(st){
+  const globalT=st.throwouts||0, zfpPct=st.zfpPct||20, n=st.boats.length;
+  const boatData=st.boats.map(b=>{
+    const raceScores=st.races.map(race=>{
+      const e=race.entries.find(e=>e.boatId===b.id);
+      return e?computeRaceScore(e,n,zfpPct):n+1;
+    });
+    const nonExcIdx=new Set(st.races.map((race,ri)=>{
+      const e=race.entries.find(e=>e.boatId===b.id);
+      return(e&&NON_EXCLUDABLE.includes(e.status))?ri:-1;
+    }).filter(i=>i>=0));
+    return{boat:b,raceScores,nonExcIdx};
+  });
+  boatData.forEach(bd=>{
+    const t=bd.boat.throwoutOverride!=null?bd.boat.throwoutOverride:globalT;
+    const idx=bd.raceScores.map((s,i)=>({s,i})).filter(x=>!bd.nonExcIdx.has(x.i)).sort((a,b)=>b.s-a.s);
+    bd.throwoutIndices=new Set(idx.slice(0,t).map(x=>x.i));
+    bd.netScore=bd.raceScores.reduce((sum,s,i)=>bd.throwoutIndices.has(i)?sum:sum+s,0);
+  });
+  boatData.sort((a,b)=>{
+    if(a.netScore!==b.netScore) return a.netScore-b.netScore;
+    const aS=a.raceScores.filter((_,i)=>!a.throwoutIndices.has(i)).sort((x,y)=>x-y);
+    const bS=b.raceScores.filter((_,i)=>!b.throwoutIndices.has(i)).sort((x,y)=>x-y);
+    for(let i=0;i<Math.max(aS.length,bS.length);i++){const d=(aS[i]??Infinity)-(bS[i]??Infinity);if(d!==0)return d;}
+    for(let r=st.races.length-1;r>=0;r--){const d=(a.raceScores[r]??Infinity)-(b.raceScores[r]??Infinity);if(d!==0)return d;}
+    return 0;
+  });
+  return boatData;
+}
+
+// ── BUILD RESULTS HTML ──────────────────────────────────────────────────────
+function buildResultsHTML(st, forExport=false){
+  if(!st.boats?.length||!st.races?.length) return '';
+  const series=computeSeriesFor(st);
+  const hd=series[0].raceScores.map((_,i)=>`<th>R${i+1}</th>`).join('');
+  const rows=series.map((bd,pos)=>{
+    const badge=pos===0?`<span class="rank-badge rank-1">1</span>`:pos===1?`<span class="rank-badge rank-2">2</span>`:pos===2?`<span class="rank-badge rank-3">3</span>`:`<span class="rank-badge rank-n">${pos+1}</span>`;
+    const cells=bd.raceScores.map((s,ri)=>{
+      const entry=st.races[ri].entries.find(e=>e.boatId===bd.boat.id);
+      const isT=bd.throwoutIndices.has(ri);
+      const st2=entry?.status||'';
+      let disp=s,b2='';
+      if(PENALTY_STATUSES.includes(st2)){b2=`<span class="status-badge s-${st2.toLowerCase()}">${st2}</span>`;disp='';}
+      else if(st2==='ZFP') b2=`<span class="status-badge s-zfp">ZFP</span>`;
+      return `<td class="score-cell${isT?' throwout':''}">${disp}${b2}</td>`;
+    }).join('');
+    return `<tr class="${pos===0?'winner':''}"><td>${badge}</td><td class="left">${escHtml(bd.boat.name)}</td>${cells}<td class="score-cell total">${bd.netScore}</td></tr>`;
+  }).join('');
+  const title=forExport?`<div style="font-family:'Bebas Neue',sans-serif;font-size:1.4rem;letter-spacing:0.15em;color:#a8dadc;margin-bottom:1rem;">⛵ ${escHtml(st.seriesName||'SERIES')}</div>`:'';
+  return `${title}<table><thead><tr><th style="width:34px">#</th><th class="left">艇名</th>${hd}<th>合計</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderResults(){
+  const el=document.getElementById('resultsTable');
+  el.innerHTML=buildResultsHTML(state)||'<div class="empty"><div class="empty-icon">📊</div>レースを入力すると成績が表示されます</div>';
+}
+
+// ── PNG ────────────────────────────────────────────────────────────────────
+async function exportPNG(){
+  if(!state.races.length){showToast('データがありません');return;}
+  showToast('PNG生成中...');
+  const cap=document.getElementById('pngCapture');
+  cap.innerHTML=buildResultsHTML(state,true);
+  cap.style.cssText='position:absolute;left:0;top:0;z-index:-1;background:#0a1628;padding:24px;min-width:600px;';
+  try{
+    const canvas=await html2canvas(cap,{backgroundColor:'#0a1628',scale:2,useCORS:true,logging:false});
+    const a=document.createElement('a');
+    a.href=canvas.toDataURL('image/png');
+    a.download=(state.seriesName||'regatta')+'_results.png';
+    a.click();
+    showToast('PNG保存しました');
+  }catch(e){showToast('PNG生成失敗');}
+  finally{cap.style.cssText='position:fixed;left:-9999px;top:0;background:#0a1628;padding:24px;min-width:600px;z-index:-1;';cap.innerHTML='';}
+}
+
+// ── PAST RACES ──────────────────────────────────────────────────────────────
+function openRaceListModal(){
+  const el=document.getElementById('raceListContent');
+  el.innerHTML=!state.races.length?'<div class="empty"><div class="empty-icon">🌊</div>まだレースがありません</div>'
+    :state.races.map((r,i)=>{
+      const top=r.entries.filter(e=>e.rank===1).map(e=>boatName(e.boatId)).join(', ');
+      return `<div class="race-card"><div class="race-card-info"><span class="race-pill">RACE ${i+1}</span><span class="race-summary">1位: ${top||'—'} ／ ${r.entries.length}艇</span></div><button class="btn btn-secondary" onclick="openEditRace(${i})">編集</button></div>`;
+    }).join('');
+  document.getElementById('raceListModal').classList.add('open');
+}
+function closeRaceListModal(){document.getElementById('raceListModal').classList.remove('open');}
+
+function openEditRace(i){
+  editingRaceIndex=i;
+  document.getElementById('editRaceTitle').textContent=`RACE ${i+1} 編集`;
+  document.getElementById('editRaceForm').innerHTML=state.races[i].entries.map((e,j)=>`
+    <div class="edit-row">
+      <span class="edit-boat-name">${escHtml(boatName(e.boatId))}</span>
+      <input type="number" class="edit-rank-input" id="er_${j}" value="${e.rank||''}" min="1" placeholder="順位">
+      <select class="edit-status-select" id="es_${j}">
+        <option value="">—</option>
+        ${['DNS','DNC','OCS','DNF','RET','DSQ','BFD','UFD','DNE','ZFP'].map(s=>`<option value="${s}" ${e.status===s?'selected':''}>${s}</option>`).join('')}
+      </select>
+    </div>`).join('');
+  closeRaceListModal();
+  document.getElementById('editRaceModal').classList.add('open');
+}
+function closeEditRace(){document.getElementById('editRaceModal').classList.remove('open');editingRaceIndex=null;}
+function saveEditRace(){
+  if(editingRaceIndex===null) return;
+  state.races[editingRaceIndex].entries.forEach((e,j)=>{
+    e.rank=parseInt(document.getElementById(`er_${j}`).value)||null;
+    e.status=document.getElementById(`es_${j}`).value;
+  });
+  saveState();renderResults();closeEditRace();
+  showToast(`Race ${editingRaceIndex+1} を更新しました`);
+}
+function deleteRace(){
+  if(editingRaceIndex===null) return;
+  if(!confirm(`Race ${editingRaceIndex+1} を削除しますか？`)) return;
+  state.races.splice(editingRaceIndex,1);
+  saveState();resetEntrySession();renderResults();closeEditRace();
+  showToast('レースを削除しました');
+}
+
+// ── CLOUD MODAL ────────────────────────────────────────────────────────────
+function openCloudModal(){
+  document.getElementById('cloudModal').classList.add('open');
+  switchCloudTab('save');
+}
+function closeCloudModal(){document.getElementById('cloudModal').classList.remove('open');}
+function switchCloudTab(name){
+  ['save','list'].forEach((n,i)=>{
+    document.querySelectorAll('.cloud-tab')[i].classList.toggle('active',n===name);
+    document.getElementById('ctab-'+n).classList.toggle('active',n===name);
+  });
+  if(name==='list' && typeof renderEventList==='function') renderEventList();
+}
+
+// ── TABS ───────────────────────────────────────────────────────────────────
+function switchTab(name){
+  ['setup','entry','results'].forEach((n,i)=>{
+    document.querySelectorAll('.tab')[i].classList.toggle('active',n===name);
+    document.getElementById('tab-'+n).classList.toggle('active',n===name);
+  });
+  if(name==='results') renderResults();
+}
+
+// ── UTILS ──────────────────────────────────────────────────────────────────
+function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+let toastTimer;
+function showToast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),2800);}
+
+// initial render (before Firebase loads)
+updateThrowoutInfo();
+renderResults();
+</script>
+</body>
+</html>
