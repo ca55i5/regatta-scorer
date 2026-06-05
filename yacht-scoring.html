@@ -37,14 +37,14 @@ let unsubscribe      = null;
 
 // ── FIREBASE: save current ───────────────────────────────────────────────────
 function scheduleSave() {
-  setSyncStatus('saving','保存中...');
+  setSyncStatus('saving','syncSaving');
   clearTimeout(syncTimer);
   syncTimer = setTimeout(async () => {
     try {
       await setDoc(doc(db,'events', CURRENT_DOC_ID), { ...window.state, _updatedAt: Date.now() });
-      setSyncStatus('ok','自動保存: '+new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}));
+      setSyncStatus('ok','syncOk',new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}));
     } catch(e) {
-      setSyncStatus('err','保存失敗: '+e.message);
+      setSyncStatus('err','syncErr',e.message);
     }
   }, 1200);
 }
@@ -53,10 +53,10 @@ function scheduleSave() {
 const ADMIN_PASS = 'h2jyc2026'; // ← ここを変更してください
 function checkAdmin() {
   if (sessionStorage.getItem('adminAuth') === '1') return true;
-  const input = prompt('パスワードを入力してください');
-  if (input === null) return false; // キャンセル
+  const input = prompt(t('promptPass'));
+  if (input === null) return false;
   if (input === ADMIN_PASS) { sessionStorage.setItem('adminAuth','1'); return true; }
-  showToast('パスワードが違います');
+  showToast(t('toastWrongPass'));
   return false;
 }
 
@@ -64,29 +64,29 @@ function checkAdmin() {
 async function saveAsEvent() {
   if (!checkAdmin()) return;
   const name = window.state.seriesName.trim();
-  if (!name) { showToast('先に大会名を入力してください'); switchTab('setup'); return; }
+  if (!name) { showToast(t('toastNoName')); switchTab('setup'); return; }
   const btn = document.getElementById('saveEventBtn');
   btn.disabled = true; btn.textContent = '保存中...';
   try {
     const id = 'evt_' + Date.now();
     await setDoc(doc(db,'events', id), { ...window.state, _savedAt: Date.now() });
-    setSyncStatus('ok','「'+name+'」を保存しました');
-    showToast('☁ 大会データを保存しました');
+    setSyncStatus('ok','syncConnected');
+    showToast(t('toastSaved'));
     renderEventList();
-  } catch(e) { showToast('保存失敗: '+e.message); }
+  } catch(e) { showToast(t('toastSaveFail')+e.message); }
   finally { btn.disabled=false; btn.textContent='💾 大会として保存'; }
 }
 
 // ── FIREBASE: load event list ─────────────────────────────────────────────────
 async function renderEventList() {
   const el = document.getElementById('eventList');
-  el.innerHTML = '<div class="drive-status"><span class="drive-spinner"></span>読み込み中...</div>';
+  el.innerHTML = `<div class="drive-status"><span class="drive-spinner"></span>${t('cloudLoading')}</div>`;
   try {
     const snap = await getDocs(collection(db,'events'));
     const events = [];
     snap.forEach(d => { if (d.id !== CURRENT_DOC_ID) events.push({id:d.id,...d.data()}); });
     events.sort((a,b)=>(a.dateFrom||'').localeCompare(b.dateFrom||''));
-    if (events.length===0) { el.innerHTML='<div class="drive-status">保存済みの大会がありません</div>'; return; }
+    if (events.length===0) { el.innerHTML=`<div class="drive-status">${t('cloudEmpty')}</div>`; return; }
     el.innerHTML = events.map(ev => {
       const from = ev.dateFrom||'';
       const to   = ev.dateTo||'';
@@ -96,14 +96,14 @@ async function renderEventList() {
       return `<div class="drive-item" onclick="openViewEvent('${ev.id}')">
         <span style="font-size:1.1rem">🏆</span>
         <div style="flex:1;min-width:0;">
-          <div class="drive-item-name">${escHtml(ev.seriesName||'無題')}</div>
-          <div style="font-size:0.7rem;color:var(--muted);">${boatCount}艇 / ${raceCount}レース</div>
+          <div class="drive-item-name">${escHtml(ev.seriesName||t('noTitle'))}</div>
+          <div style="font-size:0.7rem;color:var(--muted);">${boatCount}${t('boatsCount')}${raceCount}${t('racesCount')}</div>
         </div>
         <span class="drive-item-date">${ds}</span>
       </div>`;
     }).join('');
   } catch(e) {
-    el.innerHTML = '<div class="drive-status">読み込み失敗: '+e.message+'</div>';
+    el.innerHTML = `<div class="drive-status">${t('toastLoadFail')+e.message}</div>`;
   }
 }
 
@@ -115,7 +115,7 @@ async function openViewEvent(id) {
   document.getElementById('viewEventModal').classList.add('open');
   try {
     const snap = await getDoc(doc(db,'events',id));
-    if (!snap.exists()) { showToast('データが見つかりません'); closeViewEvent(); return; }
+    if (!snap.exists()) { showToast(t('toastNotFound')); closeViewEvent(); return; }
     const ev = snap.data();
     migrateState(ev);
     document.getElementById('viewEventTitle').textContent = ev.seriesName||'無題';
@@ -129,7 +129,7 @@ function closeViewEvent() { document.getElementById('viewEventModal').classList.
 
 async function loadViewEvent() {
   if (!viewingEventId) return;
-  if (!confirm('この大会データを開きますか？\n現在の入力内容は上書きされます。')) return;
+  if (!confirm(t('confirmLoad'))) return;
   try {
     const snap = await getDoc(doc(db,'events',viewingEventId));
     const ev = snap.data();
@@ -141,21 +141,21 @@ async function loadViewEvent() {
     scheduleSave();
     closeViewEvent();
     closeCloudModal();
-    showToast('大会データを読み込みました');
-  } catch(e) { showToast('読み込み失敗'); }
+    showToast(t('toastLoaded'));
+  } catch(e) { showToast(t('toastLoadFail')); }
 }
 
 async function deleteViewEvent() {
   if (!viewingEventId) return;
   if (!checkAdmin()) return;
   const title = document.getElementById('viewEventTitle').textContent;
-  if (!confirm(`「${title}」を削除しますか？`)) return;
+  if (!confirm(t('confirmDeleteEvent').replace('{t}',title))) return;
   try {
     await deleteDoc(doc(db,'events',viewingEventId));
     closeViewEvent();
     renderEventList();
-    showToast('削除しました');
-  } catch(e) { showToast('削除失敗'); }
+    showToast(t('toastDeleted'));
+  } catch(e) { showToast(t('toastDeleteFail')); }
 }
 
 // リアルタイム同期（他の人が入力したら自動で反映）
@@ -174,10 +174,10 @@ function startRealtimeSync() {
       delete window.state._updatedAt;
       localStorage.setItem('regattaScorer3', JSON.stringify(window.state));
       applyStateToUI();
-      setSyncStatus('ok','他のユーザーが更新しました');
+      setSyncStatus('ok','syncOther');
     }
   }, (err) => {
-    setSyncStatus('err','同期エラー');
+    setSyncStatus('err','syncError');
   });
 }
 
@@ -211,10 +211,10 @@ window.addEventListener('load', async () => {
         delete window.state._updatedAt;
       }
     }
-    setSyncStatus('ok','接続済み');
+    setSyncStatus('ok','syncConnected');
     startRealtimeSync();
   } catch(e) {
-    setSyncStatus('err','オフライン（ローカルデータを使用中）');
+    setSyncStatus('err','syncOffline');
   }
 
   localStorage.setItem('regattaScorer3', JSON.stringify(window.state));
@@ -400,8 +400,8 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
       </div>
     </div>
     <div class="header-actions">
-      <button class="btn btn-cloud" onclick="openCloudModal()">☁ 大会</button>
-      <button class="btn btn-danger" onclick="resetAll()">リセット</button>
+      <button class="btn btn-cloud" onclick="openCloudModal()" data-i18n="headerCloud">☁ 大会</button>
+      <button class="btn btn-danger" onclick="resetAll()" data-i18n="headerReset">リセット</button>
     </div>
   </div>
 </header>
@@ -414,39 +414,39 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
 
 <div class="main">
   <div class="tabs">
-    <button class="tab active" onclick="switchTab('setup')">⚙ 設定</button>
-    <button class="tab" onclick="switchTab('entry')">✚ 入力</button>
-    <button class="tab" onclick="switchTab('results')">🏆 成績表</button>
+    <button class="tab active" onclick="switchTab('setup')" data-i18n="tabSetup">⚙ 設定</button>
+    <button class="tab" onclick="switchTab('entry')" data-i18n="tabEntry">✚ 入力</button>
+    <button class="tab" onclick="switchTab('results')" data-i18n="tabResults">🏆 成績表</button>
   </div>
 
   <!-- SETUP -->
   <div class="tab-content active" id="tab-setup">
     <div class="panel">
-      <div class="panel-title">シリーズ設定</div>
+      <div class="panel-title" data-i18n="setupTitle">シリーズ設定</div>
       <div class="setup-grid">
-        <div><label>大会名</label><input type="text" id="seriesName" placeholder="2025 Summer Series" oninput="saveState()"></div>
+        <div><label data-i18n="labelName">大会名</label><input type="text" id="seriesName" placeholder="2025 Summer Series" data-i18n-placeholder="namePlaceholder" oninput="saveState()"></div>
         <div>
-          <label>捨てレース数（Throwout）</label>
+          <label data-i18n="labelThrowouts">捨てレース数（Throwout）</label>
           <input type="number" id="throwouts" min="0" max="10" value="1" oninput="updateThrowoutInfo();saveState()">
           <div class="throwout-info" id="throwoutInfo"></div>
         </div>
         <div style="grid-column:1/-1;display:flex;gap:0.85rem;">
-          <div style="flex:1;min-width:0;"><label>開始日</label><input type="text" id="dateFrom" placeholder="2025/06/01" readonly></div>
-          <div style="flex:1;min-width:0;"><label>終了日</label><input type="text" id="dateTo" placeholder="2025/06/03" readonly></div>
+          <div style="flex:1;min-width:0;"><label data-i18n="labelDateFrom">開始日</label><input type="text" id="dateFrom" placeholder="2025/06/01" readonly></div>
+          <div style="flex:1;min-width:0;"><label data-i18n="labelDateTo">終了日</label><input type="text" id="dateTo" placeholder="2025/06/03" readonly></div>
         </div>
       </div>
     </div>
     <div class="panel">
-      <div class="panel-title">参加艇登録</div>
+      <div class="panel-title" data-i18n="boatsTitle">参加艇登録</div>
       <div class="add-row">
-        <input type="text" id="boatInput" placeholder="艇名を入力" onkeydown="if(event.key==='Enter')addBoat()">
-        <button class="btn btn-primary" onclick="addBoat()">追加</button>
+        <input type="text" id="boatInput" placeholder="艇名を入力" data-i18n-placeholder="boatPlaceholder" onkeydown="if(event.key==='Enter')addBoat()">
+        <button class="btn btn-primary" onclick="addBoat()" data-i18n="boatAdd">追加</button>
       </div>
       <div class="boats-list" id="boatsList"></div>
     </div>
     <div class="panel" id="handicapPanel" style="display:none;">
-      <div class="panel-title">個別捨てレース設定</div>
-      <p class="handicap-note">空欄の場合は「捨てレース数」に設定した数を適用します。</p>
+      <div class="panel-title" data-i18n="handicapTitle">個別捨てレース設定</div>
+      <p class="handicap-note" data-i18n="handicapNote">空欄の場合は「捨てレース数」に設定した数を適用します。</p>
       <div class="boat-throwout-grid" id="boatThrowoutList"></div>
     </div>
   </div>
@@ -457,35 +457,35 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
       <div class="race-header">
         <span class="race-num" id="raceNumLabel">RACE #1</span>
         <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
-          <button class="btn btn-secondary" onclick="openRaceListModal()">RACE着順編集</button>
-          <button class="btn btn-gold" onclick="saveRace()" id="saveBtn">保存</button>
+          <button class="btn btn-secondary" onclick="openRaceListModal()" data-i18n="entryEditBtn">RACE着順編集</button>
+          <button class="btn btn-gold" onclick="saveRace()" id="saveBtn" data-i18n="entrySaveBtn">保存</button>
         </div>
       </div>
       <div class="progress-bar-wrap"><div class="progress-bar" id="progressBar" style="width:0%"></div></div>
       <div id="entryArea">
         <div class="finish-layout">
           <div>
-            <div class="finish-section-label">タップして順位をつける ↓</div>
+            <div class="finish-section-label" data-i18n="tapLabel">タップして順位をつける ↓</div>
             <div class="unranked-pool" id="unrankedPool"></div>
           </div>
           <div>
-            <div class="finish-section-label">フィニッシュ順</div>
+            <div class="finish-section-label" data-i18n="finishLabel">フィニッシュ順</div>
             <div class="ranked-list" id="rankedList"></div>
           </div>
         </div>
       </div>
-      <div class="empty" id="entryEmpty" style="display:none;"><div class="empty-icon">⚓</div>設定タブで艇を登録してください</div>
+      <div class="empty" id="entryEmpty" style="display:none;"><div class="empty-icon">⚓</div><span data-i18n="noBoatsEntry">設定タブで艇を登録してください</span></div>
     </div>
     <div class="panel">
-      <div class="panel-title">ステータスコード</div>
+      <div class="panel-title" data-i18n="statusTitle">ステータスコード</div>
       <div class="code-legend">
-        <span><b>DNS</b> スタートせず</span><span><b>DNC</b> 出場せず</span>
-        <span><b>OCS</b> フライング</span><span><b>DNF</b> フィニッシュせず</span>
-        <span><b>RET</b> リタイア</span><span><b>DSQ</b> 失格</span>
-        <span><b>BFD</b> 黒旗失格</span><span><b>UFD</b> U旗失格</span>
-        <span><b>DNE</b> 除外不可失格</span><span><b>ZFP</b> Z旗ペナルティ（20%）</span>
+        <span><b>DNS</b> <span data-i18n="sDns">スタートせず</span></span><span><b>DNC</b> <span data-i18n="sDnc">出場せず</span></span>
+        <span><b>OCS</b> <span data-i18n="sOcs">フライング</span></span><span><b>DNF</b> <span data-i18n="sDnf">フィニッシュせず</span></span>
+        <span><b>RET</b> <span data-i18n="sRet">リタイア</span></span><span><b>DSQ</b> <span data-i18n="sDsq">失格</span></span>
+        <span><b>BFD</b> <span data-i18n="sBfd">黒旗失格</span></span><span><b>UFD</b> <span data-i18n="sUfd">U旗失格</span></span>
+        <span><b>DNE</b> <span data-i18n="sDne">除外不可失格</span></span><span><b>ZFP</b> <span data-i18n="sZfp">Z旗ペナルティ（20%）</span></span>
       </div>
-      <p style="font-size:0.72rem;color:var(--muted);margin-top:0.55rem;">DNS〜DNE → 出走艇数＋1点。<b style="color:#e89eff">DNEは捨てレース不可（RRS 90.3b）</b>。ZFP → 20%加算。</p>
+      <p style="font-size:0.72rem;color:var(--muted);margin-top:0.55rem;" data-i18n-html="statusNote">DNS〜DNE → 出走艇数＋1点。<b style="color:#e89eff">DNEは捨てレース不可（RRS 90.3b）</b>。ZFP → 20%加算。</p>
     </div>
   </div>
 
@@ -493,14 +493,14 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
   <div class="tab-content" id="tab-results">
     <div class="panel">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.9rem;">
-        <div class="panel-title" id="resultsPanelTitle" style="margin-bottom:0;">シリーズ成績表</div>
+        <div class="panel-title" id="resultsPanelTitle" style="margin-bottom:0;" data-i18n="resultsTitle">シリーズ成績表</div>
         <div style="display:flex;gap:0.4rem;">
-          <button class="btn btn-secondary" onclick="exportPNG()">PNG 保存</button>
-          <button class="btn btn-secondary" onclick="copyPNG()">📤 シェア</button>
+          <button class="btn btn-secondary" onclick="exportPNG()" data-i18n="resultsPng">PNG 保存</button>
+          <button class="btn btn-secondary" onclick="copyPNG()" data-i18n="resultsShare">📤 シェア</button>
         </div>
       </div>
       <div class="results-wrap"><div id="resultsTable"></div></div>
-      <div class="tiebreak-note">※ タイブレーク：A8.1 成績を良い順に比較（捨てレース除く）→ A8.2 最終レースから遡る</div>
+      <div class="tiebreak-note" data-i18n="tiebreakNote">※ タイブレーク：A8.1 成績を良い順に比較（捨てレース除く）→ A8.2 最終レースから遡る</div>
     </div>
   </div>
 </div>
@@ -508,25 +508,25 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
 <!-- Cloud modal -->
 <div class="modal-overlay" id="cloudModal" onclick="if(event.target===this)closeCloudModal()">
   <div class="modal" style="max-width:500px;">
-    <div class="modal-title">☁ 大会データ管理</div>
+    <div class="modal-title" data-i18n="cloudTitle">☁ 大会データ管理</div>
     <div class="cloud-tabs">
-      <button class="cloud-tab active" onclick="switchCloudTab('save')">今の大会を保存</button>
-      <button class="cloud-tab" onclick="switchCloudTab('list')">過去の大会一覧</button>
+      <button class="cloud-tab active" onclick="switchCloudTab('save')" data-i18n="cloudSaveTab">今の大会を保存</button>
+      <button class="cloud-tab" onclick="switchCloudTab('list')" data-i18n="cloudListTab">過去の大会一覧</button>
     </div>
     <div class="cloud-tab-content active" id="ctab-save">
-      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:0.4rem;">入力中のデータはリアルタイムで自動保存されています。</p>
-      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:0.9rem;">大会が終わったら「大会として保存」で過去一覧に残せます。</p>
-      <button class="btn btn-cloud" id="saveEventBtn" onclick="saveAsEvent()">💾 大会として保存</button>
+      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:0.4rem;" data-i18n="cloudAutoSave">入力中のデータはリアルタイムで自動保存されています。</p>
+      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:0.9rem;" data-i18n="cloudSaveHint">大会が終わったら「大会として保存」で過去一覧に残せます。</p>
+      <button class="btn btn-cloud" id="saveEventBtn" onclick="saveAsEvent()" data-i18n="cloudSaveBtn">💾 大会として保存</button>
     </div>
     <div class="cloud-tab-content" id="ctab-list">
       <div style="display:flex;justify-content:flex-end;margin-bottom:0.6rem;">
-        <button class="btn btn-secondary" onclick="renderEventList()" style="font-size:0.74rem;padding:0.32rem 0.7rem;">↺ 更新</button>
+        <button class="btn btn-secondary" onclick="renderEventList()" style="font-size:0.74rem;padding:0.32rem 0.7rem;" data-i18n="cloudRefresh">↺ 更新</button>
       </div>
       <div class="drive-list" id="eventList">
         <div class="drive-status"><span class="drive-spinner"></span>読み込み中...</div>
       </div>
     </div>
-    <div class="modal-actions"><button class="btn btn-secondary" onclick="closeCloudModal()">閉じる</button></div>
+    <div class="modal-actions"><button class="btn btn-secondary" onclick="closeCloudModal()" data-i18n="cloudClose">閉じる</button></div>
   </div>
 </div>
 
@@ -535,11 +535,11 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
   <div class="modal" style="max-width:680px;">
     <div class="modal-title" id="viewEventTitle">大会成績</div>
     <div class="results-wrap" id="viewEventResults"></div>
-    <div class="tiebreak-note" style="margin-top:0.3rem;">※ タイブレーク：A8.1→A8.2</div>
+    <div class="tiebreak-note" style="margin-top:0.3rem;" data-i18n="tiebreakShort">※ タイブレーク：A8.1→A8.2</div>
     <div class="modal-actions">
-      <button class="btn btn-danger" onclick="deleteViewEvent()" style="margin-right:auto;">削除</button>
-      <button class="btn btn-secondary" onclick="loadViewEvent()">この大会を開く</button>
-      <button class="btn btn-secondary" onclick="closeViewEvent()">閉じる</button>
+      <button class="btn btn-danger" onclick="deleteViewEvent()" style="margin-right:auto;" data-i18n="modalDelete">削除</button>
+      <button class="btn btn-secondary" onclick="loadViewEvent()" data-i18n="modalOpen">この大会を開く</button>
+      <button class="btn btn-secondary" onclick="closeViewEvent()" data-i18n="modalClose">閉じる</button>
     </div>
   </div>
 </div>
@@ -547,22 +547,22 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
 <!-- Race list modal -->
 <div class="modal-overlay" id="raceListModal" onclick="if(event.target===this)closeRaceListModal()">
   <div class="modal">
-    <div class="modal-title">過去レースの編集</div>
+    <div class="modal-title" data-i18n="raceListTitle">過去レースの編集</div>
     <div id="raceListContent"></div>
-    <div class="modal-actions"><button class="btn btn-secondary" onclick="closeRaceListModal()">閉じる</button></div>
+    <div class="modal-actions"><button class="btn btn-secondary" onclick="closeRaceListModal()" data-i18n="modalClose">閉じる</button></div>
   </div>
 </div>
 
 <!-- Edit race modal -->
 <div class="modal-overlay" id="editRaceModal" onclick="if(event.target===this)closeEditRace()">
   <div class="modal">
-    <div class="modal-title" id="editRaceTitle">RACE 編集</div>
-    <div style="font-size:0.74rem;color:var(--muted);margin-bottom:0.7rem;">順位またはステータスを変更できます</div>
+    <div class="modal-title" id="editRaceTitle" data-i18n="raceEditTitle">RACE 編集</div>
+    <div style="font-size:0.74rem;color:var(--muted);margin-bottom:0.7rem;" data-i18n="raceEditHint">順位またはステータスを変更できます</div>
     <div id="editRaceForm"></div>
     <div class="modal-actions">
-      <button class="btn btn-danger" onclick="deleteRace()" style="margin-right:auto;">削除</button>
-      <button class="btn btn-secondary" onclick="closeEditRace()">キャンセル</button>
-      <button class="btn btn-gold" onclick="saveEditRace()">保存</button>
+      <button class="btn btn-danger" onclick="deleteRace()" style="margin-right:auto;" data-i18n="modalDelete">削除</button>
+      <button class="btn btn-secondary" onclick="closeEditRace()" data-i18n="modalCancel">キャンセル</button>
+      <button class="btn btn-gold" onclick="saveEditRace()" data-i18n="modalSave">保存</button>
     </div>
   </div>
 </div>
@@ -575,6 +575,114 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
 // scheduleSave, saveAsEvent, renderEventList, openViewEvent,
 // closeViewEvent, loadViewEvent, deleteViewEvent are set by the module above
 
+// ── I18N ──────────────────────────────────────────────────────────────────
+const LANG = new URLSearchParams(location.search).get('lang')==='en'?'en':'ja';
+const TX = {
+  ja:{
+    tabSetup:'⚙ 設定',tabEntry:'✚ 入力',tabResults:'🏆 成績表',
+    headerCloud:'☁ 大会',headerReset:'リセット',
+    setupTitle:'シリーズ設定',labelName:'大会名',namePlaceholder:'2025 Summer Series',
+    labelThrowouts:'捨てレース数（Throwout）',labelDateFrom:'開始日',labelDateTo:'終了日',
+    boatsTitle:'参加艇登録',boatPlaceholder:'艇名を入力',boatAdd:'追加',boatEmpty:'まだ登録されていません',
+    handicapTitle:'個別捨てレース設定',handicapNote:'空欄の場合は「捨てレース数」に設定した数を適用します。',
+    entryEditBtn:'RACE着順編集',entrySaveBtn:'保存',
+    tapLabel:'タップして順位をつける ↓',finishLabel:'フィニッシュ順',tapHint:'TAP→',
+    allDone:'✓ 全艇入力済み',noFinish:'まだフィニッシュなし',noBoatsEntry:'設定タブで艇を登録してください',
+    statusTitle:'ステータスコード',
+    sDns:'スタートせず',sDnc:'出場せず',sOcs:'フライング',sDnf:'フィニッシュせず',
+    sRet:'リタイア',sDsq:'失格',sBfd:'黒旗失格',sUfd:'U旗失格',sDne:'除外不可失格',sZfp:'Z旗ペナルティ（20%）',
+    statusNote:'DNS〜DNE → 出走艇数＋1点。<b style="color:#e89eff">DNEは捨てレース不可（RRS 90.3b）</b>。ZFP → 20%加算。',
+    resultsTitle:'シリーズ成績表',resultsPng:'PNG 保存',resultsShare:'📤 シェア',
+    tiebreakNote:'※ タイブレーク：A8.1 成績を良い順に比較（捨てレース除く）→ A8.2 最終レースから遡る',
+    colBoat:'艇名',colTotal:'合計',resultsEmpty:'レースを入力すると成績が表示されます',
+    cloudTitle:'☁ 大会データ管理',cloudSaveTab:'今の大会を保存',cloudListTab:'過去の大会一覧',
+    cloudAutoSave:'入力中のデータはリアルタイムで自動保存されています。',
+    cloudSaveHint:'大会が終わったら「大会として保存」で過去一覧に残せます。',
+    cloudSaveBtn:'💾 大会として保存',cloudClose:'閉じる',cloudRefresh:'↺ 更新',
+    cloudLoading:'読み込み中...',cloudEmpty:'保存済みの大会がありません',
+    modalOpen:'この大会を開く',modalDelete:'削除',modalClose:'閉じる',
+    tiebreakShort:'※ タイブレーク：A8.1→A8.2',
+    raceListTitle:'過去レースの編集',raceEditTitle:'RACE 編集',
+    raceEditHint:'順位またはステータスを変更できます',
+    modalCancel:'キャンセル',modalSave:'保存',
+    throwoutNone:'捨てレースなし',throwoutSome:'最悪<span class="highlight">{t}</span>レースを除外',
+    syncSaving:'保存中...',syncOk:'自動保存: ',syncErr:'保存失敗: ',
+    syncOther:'他のユーザーが更新しました',syncConnected:'接続済み',syncOffline:'オフライン（ローカルデータを使用中）',syncError:'同期エラー',
+    toastNoName:'先に大会名を入力してください',toastSaved:'☁ 大会データを保存しました',
+    toastSaveFail:'保存失敗: ',toastDeleted:'削除しました',toastDeleteFail:'削除失敗',
+    toastLoaded:'大会データを読み込みました',toastLoadFail:'読み込み失敗',toastNotFound:'データが見つかりません',
+    toastPngGen:'PNG生成中...',toastPngSaved:'PNG保存しました',toastPngFail:'PNG生成失敗',
+    toastCopied:'クリップボードにコピーしました',toastShared:'共有しました',
+    toastNewTab:'新しいタブで開きました（長押しで保存）',toastShareFail:'共有に失敗しました',
+    toastNoData:'データがありません',toastNoBothBoats:'レース入力後は削除できません',
+    toastDupName:'同名の艇が既に登録されています',toastRemainingPre:'残り',toastRemainingPost:'艇を入力してください',
+    toastRaceSaved:'Race #{n} を保存しました',toastRaceUpdated:'Race {n} を更新しました',toastRaceDeleted:'レースを削除しました',
+    toastReset:'リセットしました',toastWrongPass:'パスワードが違います',
+    confirmReset:'参加艇以外をリセットしますか？\n（保存済みの過去大会は残ります）',
+    confirmLoad:'この大会データを開きますか？\n現在の入力内容は上書きされます。',
+    confirmDeleteEvent:'「{t}」を削除しますか？',confirmDeleteRace:'Race {n} を削除しますか？',
+    promptPass:'パスワードを入力してください',
+    racePill:'RACE',race1st:'1位: ',raceBoats:'艇',
+    boatsCount:'艇 / ',racesCount:'レース',noTitle:'無題',
+    exportTitle:'SERIES',
+  },
+  en:{
+    tabSetup:'⚙ Setup',tabEntry:'✚ Entry',tabResults:'🏆 Results',
+    headerCloud:'☁ Events',headerReset:'Reset',
+    setupTitle:'Series Settings',labelName:'Event Name',namePlaceholder:'2025 Summer Series',
+    labelThrowouts:'Throwouts',labelDateFrom:'Start Date',labelDateTo:'End Date',
+    boatsTitle:'Boat Registration',boatPlaceholder:'Enter boat name',boatAdd:'Add',boatEmpty:'No boats registered yet',
+    handicapTitle:'Individual Throwout Settings',handicapNote:'If blank, the global throwout setting applies.',
+    entryEditBtn:'Edit Race Results',entrySaveBtn:'Save',
+    tapLabel:'Tap to assign finishing order ↓',finishLabel:'Finish Order',tapHint:'TAP→',
+    allDone:'✓ All boats entered',noFinish:'No finishes yet',noBoatsEntry:'Register boats in the Setup tab',
+    statusTitle:'Status Codes',
+    sDns:'Did Not Start',sDnc:'Did Not Come',sOcs:'On Course Side (OCS)',sDnf:'Did Not Finish',
+    sRet:'Retired',sDsq:'Disqualified',sBfd:'Black Flag (BFD)',sUfd:'U Flag (UFD)',sDne:'Disqualification (non-excludable)',sZfp:'Z Flag Penalty (20%)',
+    statusNote:'DNS–DNE → entries + 1 pts. <b style="color:#e89eff">DNE is non-excludable (RRS 90.3b)</b>. ZFP → +20%.',
+    resultsTitle:'Series Results',resultsPng:'Save PNG',resultsShare:'📤 Share',
+    tiebreakNote:'* Tiebreak: A8.1 compare scores best-to-worst (excl. throwouts) → A8.2 last race backwards',
+    colBoat:'Boat',colTotal:'Total',resultsEmpty:'Enter races to see results',
+    cloudTitle:'☁ Event Management',cloudSaveTab:'Save Current Event',cloudListTab:'Past Events',
+    cloudAutoSave:'Data is saved automatically in real time.',
+    cloudSaveHint:'Use "Save as Event" to archive results when the event is complete.',
+    cloudSaveBtn:'💾 Save as Event',cloudClose:'Close',cloudRefresh:'↺ Refresh',
+    cloudLoading:'Loading...',cloudEmpty:'No saved events',
+    modalOpen:'Open This Event',modalDelete:'Delete',modalClose:'Close',
+    tiebreakShort:'* Tiebreak: A8.1→A8.2',
+    raceListTitle:'Edit Past Races',raceEditTitle:'Edit RACE',
+    raceEditHint:'Edit finishing position or status code',
+    modalCancel:'Cancel',modalSave:'Save',
+    throwoutNone:'No throwouts',throwoutSome:'Worst <span class="highlight">{t}</span> race(s) excluded',
+    syncSaving:'Saving...',syncOk:'Auto-saved: ',syncErr:'Save failed: ',
+    syncOther:'Updated by another user',syncConnected:'Connected',syncOffline:'Offline (using local data)',syncError:'Sync error',
+    toastNoName:'Please enter an event name first',toastSaved:'☁ Event saved',
+    toastSaveFail:'Save failed: ',toastDeleted:'Deleted',toastDeleteFail:'Delete failed',
+    toastLoaded:'Event data loaded',toastLoadFail:'Load failed',toastNotFound:'Data not found',
+    toastPngGen:'Generating PNG...',toastPngSaved:'PNG saved',toastPngFail:'PNG generation failed',
+    toastCopied:'Copied to clipboard',toastShared:'Shared successfully',
+    toastNewTab:'Opened in new tab (long press to save)',toastShareFail:'Share failed',
+    toastNoData:'No data',toastNoBothBoats:'Cannot delete after races have been entered',
+    toastDupName:'A boat with that name already exists',toastRemainingPre:'',toastRemainingPost:' boats remaining',
+    toastRaceSaved:'Race #{n} saved',toastRaceUpdated:'Race {n} updated',toastRaceDeleted:'Race deleted',
+    toastReset:'Reset complete',toastWrongPass:'Incorrect password',
+    confirmReset:'Reset everything except boat list?\n(Saved past events will remain)',
+    confirmLoad:'Load this event?\nCurrent data will be overwritten.',
+    confirmDeleteEvent:'Delete "{t}"?',confirmDeleteRace:'Delete Race {n}?',
+    promptPass:'Enter password',
+    racePill:'RACE',race1st:'1st: ',raceBoats:' boats',
+    boatsCount:' boats / ',racesCount:' races',noTitle:'Untitled',
+    exportTitle:'SERIES',
+  }
+};
+function t(key){ return TX[LANG][key] ?? TX.ja[key] ?? key; }
+function applyTranslations(){
+  document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n);});
+  document.querySelectorAll('[data-i18n-html]').forEach(el=>{el.innerHTML=t(el.dataset.i18nHtml);});
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.i18nPlaceholder);});
+  if(LANG==='en') document.documentElement.lang='en';
+}
+
 // ── STATE (non-Firebase) ───────────────────────────────────────────────────
 const PENALTY_STATUSES = ['DNS','DNC','OCS','DNF','RET','DSQ','BFD','UFD','DNE'];
 const NON_EXCLUDABLE   = ['DNE'];
@@ -583,11 +691,11 @@ let editingRaceIndex = null;
 let currentRanked    = [];
 let currentUnranked  = [];
 
-function setSyncStatus(status, msg) {
+function setSyncStatus(status, key, extra='') {
   const dot=document.getElementById('syncDot');
   const lbl=document.getElementById('syncLabel');
   if(dot) dot.className='sync-dot '+status;
-  if(lbl) lbl.textContent=msg;
+  if(lbl) lbl.textContent=t(key)+extra;
 }
 
 // ── MIGRATE ────────────────────────────────────────────────────────────────
@@ -617,7 +725,7 @@ function saveState() {
 
 // ── RESET ──────────────────────────────────────────────────────────────────
 function resetAll() {
-  if (!confirm('参加艇以外をリセットしますか？\n（保存済みの過去大会は残ります）')) return;
+  if (!confirm(t('confirmReset'))) return;
   const boats=state.boats.map(b=>({...b,throwoutOverride:null}));
   state={seriesName:'',totalRaces:7,throwouts:1,zfpPct:20,boats,races:[],dateFrom:'',dateTo:''};
   localStorage.setItem('regattaScorer3', JSON.stringify(state));
@@ -631,6 +739,7 @@ function resetAll() {
   location.reload();
 }
 
+
 // ── APPLY UI ───────────────────────────────────────────────────────────────
 function applyStateToUI() {
   document.getElementById('seriesName').value =state.seriesName||'';
@@ -641,11 +750,14 @@ function applyStateToUI() {
   renderBoatsList(); resetEntrySession(); renderResults(); updateResultsPanelTitle();
 }
 
-function updateResultsPanelTitle(){document.getElementById('resultsPanelTitle').textContent=(state.seriesName||'シリーズ')+'　成績表';}
+function updateResultsPanelTitle(){
+  const name=state.seriesName||(LANG==='en'?'Series':'シリーズ');
+  document.getElementById('resultsPanelTitle').textContent=name+'　'+(LANG==='en'?'Results':'成績表');
+}
 function updateThrowoutInfo(){
-  const t=parseInt(document.getElementById('throwouts').value)||0;
-  document.getElementById('throwoutInfo').innerHTML=t===0?'捨てレースなし'
-    :`最悪<span class="highlight">${t}</span>レースを除外`;
+  const n=parseInt(document.getElementById('throwouts').value)||0;
+  document.getElementById('throwoutInfo').innerHTML=n===0?t('throwoutNone')
+    :t('throwoutSome').replace('{t}',n);
 }
 
 // ── BOATS ──────────────────────────────────────────────────────────────────
@@ -655,14 +767,14 @@ function addBoat(){
   const inp=document.getElementById('boatInput');
   const name=inp.value.trim();
   if (!name) return;
-  if (state.boats.some(b=>b.name===name)){showToast('同名の艇が既に登録されています');return;}
+  if (state.boats.some(b=>b.name===name)){showToast(t('toastDupName'));return;}
   state.boats.push({id:genId(),name,throwoutOverride:null});
   inp.value='';
   saveState(); renderBoatsList(); resetEntrySession();
 }
 
 function removeBoat(id){
-  if (state.races.length>0){showToast('レース入力後は削除できません');return;}
+  if (state.races.length>0){showToast(t('toastNoBothBoats'));return;}
   state.boats=state.boats.filter(b=>b.id!==id);
   saveState(); renderBoatsList(); resetEntrySession();
 }
@@ -670,7 +782,7 @@ function removeBoat(id){
 function renderBoatsList(){
   const el=document.getElementById('boatsList');
   if (!state.boats.length){
-    el.innerHTML='<span style="color:var(--muted);font-size:0.8rem;">まだ登録されていません</span>';
+    el.innerHTML=`<span style="color:var(--muted);font-size:0.8rem;">${t('boatEmpty')}</span>`;
     document.getElementById('handicapPanel').style.display='none';
     return;
   }
@@ -737,7 +849,7 @@ function renderEntryUI(){
   const penalties=['DNS','DNC','OCS','DNF','RET','DSQ','BFD','UFD','DNE','ZFP'];
   const pool=document.getElementById('unrankedPool');
   pool.innerHTML=currentUnranked.length===0
-    ?'<div style="color:var(--green);font-size:0.8rem;padding:0.45rem 0;">✓ 全艇入力済み</div>'
+    ?`<div style="color:var(--green);font-size:0.8rem;padding:0.45rem 0;">${t('allDone')}</div>`
     :currentUnranked.map(id=>`
       <div class="boat-btn" onclick="tapBoat('${id}')">
         <span class="boat-dot"></span>
@@ -746,10 +858,10 @@ function renderEntryUI(){
           <option value="">順位</option>
           ${penalties.map(p=>`<option value="${p}">${p}</option>`).join('')}
         </select>
-        <span class="tap-hint">TAP→</span>
+        <span class="tap-hint">${t('tapHint')}</span>
       </div>`).join('');
   const list=document.getElementById('rankedList');
-  if (!currentRanked.length){list.innerHTML='<div style="color:var(--muted);font-size:0.78rem;padding:0.35rem 0;">まだフィニッシュなし</div>';return;}
+  if (!currentRanked.length){list.innerHTML=`<div style="color:var(--muted);font-size:0.78rem;padding:0.35rem 0;">${t('noFinish')}</div>`;return;}
   let fp=0;
   list.innerHTML=currentRanked.map((item,idx)=>{
     const isP=PENALTY_STATUSES.includes(item.status);
@@ -789,7 +901,7 @@ function undoRanked(idx){
 
 function saveRace(){
   if (!state.boats.length) return;
-  if (currentUnranked.length>0){showToast(`残り${currentUnranked.length}艇を入力してください`);return;}
+  if (currentUnranked.length>0){showToast(t('toastRemainingPre')+currentUnranked.length+t('toastRemainingPost'));return;}
   let fp=0;
   const entries=currentRanked.map(item=>{
     const isP=PENALTY_STATUSES.includes(item.status);
@@ -798,7 +910,7 @@ function saveRace(){
   });
   state.races.push({entries});
   saveState(); resetEntrySession(); renderResults();
-  showToast(`Race #${state.races.length} を保存しました`);
+  showToast(t('toastRaceSaved').replace('{n}',state.races.length));
 }
 
 // ── SCORING ────────────────────────────────────────────────────────────────
@@ -867,21 +979,21 @@ function buildResultsHTML(st, forExport=false){
   let dateStr='';
   if(st.dateFrom){dateStr=st.dateFrom;if(st.dateTo&&st.dateTo!==st.dateFrom)dateStr+=' 〜 '+st.dateTo;}
   const title=forExport?`<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:1rem;">
-    <div style="font-family:'Bebas Neue',sans-serif;font-size:1.4rem;letter-spacing:0.15em;color:#a8dadc;">⛵ ${escHtml(st.seriesName||'SERIES')}</div>
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:1.4rem;letter-spacing:0.15em;color:#a8dadc;">⛵ ${escHtml(st.seriesName||t('exportTitle'))}</div>
     ${dateStr?`<div style="font-family:'DM Mono',monospace;font-size:0.72rem;color:#4a6484;text-align:right;padding-top:0.3rem;">${escHtml(dateStr)}</div>`:''}
   </div>`:'';
-  return `${title}<table><thead><tr><th style="width:34px">#</th><th class="left">艇名</th>${hd}<th>合計</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `${title}<table><thead><tr><th style="width:34px">#</th><th class="left">${t('colBoat')}</th>${hd}<th>${t('colTotal')}</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function renderResults(){
   const el=document.getElementById('resultsTable');
-  el.innerHTML=buildResultsHTML(state)||'<div class="empty"><div class="empty-icon">📊</div>レースを入力すると成績が表示されます</div>';
+  el.innerHTML=buildResultsHTML(state)||`<div class="empty"><div class="empty-icon">📊</div>${t('resultsEmpty')}</div>`;
 }
 
 // ── PNG ────────────────────────────────────────────────────────────────────
 async function exportPNG(){
-  if(!state.races.length){showToast('データがありません');return;}
-  showToast('PNG生成中...');
+  if(!state.races.length){showToast(t('toastNoData'));return;}
+  showToast(t('toastPngGen'));
   const cap=document.getElementById('pngCapture');
   cap.innerHTML=buildResultsHTML(state,true);
   cap.style.cssText='position:fixed;left:-9999px;top:0;background:#0a1628;padding:24px;min-width:600px;';
@@ -891,14 +1003,14 @@ async function exportPNG(){
     a.href=canvas.toDataURL('image/png');
     a.download=(state.seriesName||'regatta')+'_results.png';
     a.click();
-    showToast('PNG保存しました');
-  }catch(e){showToast('PNG生成失敗');}
+    showToast(t('toastPngSaved'));
+  }catch(e){showToast(t('toastPngFail'));}
   finally{cap.style.cssText='position:fixed;left:-9999px;top:0;background:#0a1628;padding:24px;min-width:600px;z-index:-1;';cap.innerHTML='';}
 }
 
 async function copyPNG(){
-  if(!state.races.length){showToast('データがありません');return;}
-  showToast('PNG生成中...');
+  if(!state.races.length){showToast(t('toastNoData'));return;}
+  showToast(t('toastPngGen'));
   const cap=document.getElementById('pngCapture');
   cap.innerHTML=buildResultsHTML(state,true);
   cap.style.cssText='position:fixed;left:-9999px;top:0;background:#0a1628;padding:24px;min-width:600px;';
@@ -913,35 +1025,33 @@ async function copyPNG(){
           const dateRange=state.dateFrom?(state.dateTo&&state.dateTo!==state.dateFrom?`${state.dateFrom}〜${state.dateTo}`:state.dateFrom):'';
         const shareTitle=(state.seriesName||'成績表')+(dateRange?`（${dateRange}）`:'');
         await navigator.share({files:[file],title:shareTitle});
-          showToast('共有しました');
+          showToast(t('toastShared'));
           return;
-        }catch(e){ if(e.name==='AbortError') return; } // キャンセルは無視
+        }catch(e){ if(e.name==='AbortError') return; }
       }
-      // 2. Clipboard API（PC Chrome/Edge）
       try{
         await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
-        showToast('クリップボードにコピーしました');
+        showToast(t('toastCopied'));
         return;
       }catch(e){}
-      // 3. 新タブで開く（最終手段）
       const w=window.open('','_blank');
       if(w){
         w.document.write(`<html><body style="margin:0;background:#000;"><img src="${dataUrl}" style="max-width:100%;"></body></html>`);
         w.document.close();
-        showToast('新しいタブで開きました（長押しで保存）');
-      }else{ showToast('共有に失敗しました'); }
+        showToast(t('toastNewTab'));
+      }else{ showToast(t('toastShareFail')); }
     },'image/png');
-  }catch(e){showToast('PNG生成失敗');}
+  }catch(e){showToast(t('toastPngFail'));}
   finally{cap.style.cssText='position:fixed;left:-9999px;top:0;background:#0a1628;padding:24px;min-width:600px;z-index:-1;';cap.innerHTML='';}
 }
 
 // ── PAST RACES ──────────────────────────────────────────────────────────────
 function openRaceListModal(){
   const el=document.getElementById('raceListContent');
-  el.innerHTML=!state.races.length?'<div class="empty"><div class="empty-icon">🌊</div>まだレースがありません</div>'
+  el.innerHTML=!state.races.length?`<div class="empty"><div class="empty-icon">🌊</div>${t('noFinish')}</div>`
     :state.races.map((r,i)=>{
       const top=r.entries.filter(e=>e.rank===1).map(e=>boatName(e.boatId)).join(', ');
-      return `<div class="race-card"><div class="race-card-info"><span class="race-pill">RACE ${i+1}</span><span class="race-summary">1位: ${top||'—'} ／ ${r.entries.length}艇</span></div><button class="btn btn-secondary" onclick="openEditRace(${i})">編集</button></div>`;
+      return `<div class="race-card"><div class="race-card-info"><span class="race-pill">${t('racePill')} ${i+1}</span><span class="race-summary">${t('race1st')}${top||'—'} ／ ${r.entries.length}${t('raceBoats')}</span></div><button class="btn btn-secondary" onclick="openEditRace(${i})">${LANG==='en'?'Edit':'編集'}</button></div>`;
     }).join('');
   document.getElementById('raceListModal').classList.add('open');
 }
@@ -949,7 +1059,7 @@ function closeRaceListModal(){document.getElementById('raceListModal').classList
 
 function openEditRace(i){
   editingRaceIndex=i;
-  document.getElementById('editRaceTitle').textContent=`RACE ${i+1} 編集`;
+  document.getElementById('editRaceTitle').textContent=`${t('racePill')} ${i+1} ${LANG==='en'?'Edit':'編集'}`;
   document.getElementById('editRaceForm').innerHTML=state.races[i].entries.map((e,j)=>`
     <div class="edit-row">
       <span class="edit-boat-name">${escHtml(boatName(e.boatId))}</span>
@@ -970,14 +1080,14 @@ function saveEditRace(){
     e.status=document.getElementById(`es_${j}`).value;
   });
   saveState();renderResults();closeEditRace();
-  showToast(`Race ${editingRaceIndex+1} を更新しました`);
+  showToast(t('toastRaceUpdated').replace('{n}',editingRaceIndex+1));
 }
 function deleteRace(){
   if(editingRaceIndex===null) return;
-  if(!confirm(`Race ${editingRaceIndex+1} を削除しますか？`)) return;
+  if(!confirm(t('confirmDeleteRace').replace('{n}',editingRaceIndex+1))) return;
   state.races.splice(editingRaceIndex,1);
   saveState();resetEntrySession();renderResults();closeEditRace();
-  showToast('レースを削除しました');
+  showToast(t('toastRaceDeleted'));
 }
 
 // ── CLOUD MODAL ────────────────────────────────────────────────────────────
@@ -1009,6 +1119,7 @@ let toastTimer;
 function showToast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),2800);}
 
 // initial render (before Firebase loads)
+applyTranslations();
 updateThrowoutInfo();
 renderResults();
 
