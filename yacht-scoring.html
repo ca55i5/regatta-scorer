@@ -888,9 +888,9 @@ async function exportPNG(){
   showToast('PNG生成中...');
   const cap=document.getElementById('pngCapture');
   cap.innerHTML=buildResultsHTML(state,true);
-  cap.style.cssText='position:absolute;left:0;top:0;z-index:-1;background:#0a1628;padding:24px;min-width:600px;';
+  cap.style.cssText='position:fixed;left:-9999px;top:0;background:#0a1628;padding:24px;min-width:600px;';
   try{
-    const canvas=await html2canvas(cap,{backgroundColor:'#0a1628',scale:2,useCORS:true,logging:false});
+    const canvas=await html2canvas(cap,{backgroundColor:'#0a1628',scale:2,useCORS:true,logging:false,onclone:(doc)=>{const el=doc.getElementById('pngCapture');el.style.position='absolute';el.style.left='0';el.style.top='0';}});
     const a=document.createElement('a');
     a.href=canvas.toDataURL('image/png');
     a.download=(state.seriesName||'regatta')+'_results.png';
@@ -905,9 +905,9 @@ async function copyPNG(){
   showToast('PNG生成中...');
   const cap=document.getElementById('pngCapture');
   cap.innerHTML=buildResultsHTML(state,true);
-  cap.style.cssText='position:absolute;left:0;top:0;z-index:-1;background:#0a1628;padding:24px;min-width:600px;';
+  cap.style.cssText='position:fixed;left:-9999px;top:0;background:#0a1628;padding:24px;min-width:600px;';
   try{
-    const canvas=await html2canvas(cap,{backgroundColor:'#0a1628',scale:2,useCORS:true,logging:false});
+    const canvas=await html2canvas(cap,{backgroundColor:'#0a1628',scale:2,useCORS:true,logging:false,onclone:(doc)=>{const el=doc.getElementById('pngCapture');el.style.position='absolute';el.style.left='0';el.style.top='0';}});
     const dataUrl=canvas.toDataURL('image/png');
     canvas.toBlob(async blob=>{
       const file=new File([blob],(state.seriesName||'regatta')+'_results.png',{type:'image/png'});
@@ -1020,7 +1020,10 @@ flatpickr('#dateFrom', {
   locale: { firstDayOfWeek: 1 },
   onChange: function(dates, dateStr) {
     const fpTo = document.getElementById('dateTo')._flatpickr;
-    if (dateStr && fpTo && !fpTo.selectedDates.length) fpTo.setDate(dateStr);
+    if (dateStr && fpTo) {
+      const toDate = fpTo.selectedDates[0];
+      if (!toDate || toDate < dates[0]) fpTo.setDate(dateStr);
+    }
     saveState();
   }
 });
