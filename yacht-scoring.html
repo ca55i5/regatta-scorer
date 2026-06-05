@@ -316,7 +316,7 @@ table{width:100%;border-collapse:collapse;font-size:0.82rem;min-width:420px;}
 th{font-family:'DM Mono',monospace;font-size:0.66rem;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;padding:0.5rem 0.65rem;text-align:center;border-bottom:1px solid var(--border);white-space:nowrap;}
 th.left{text-align:left;}
 td{padding:0.46rem 0.65rem;text-align:center;border-bottom:1px solid rgba(46,134,171,0.08);font-family:'DM Mono',monospace;vertical-align:middle;}
-td.left{text-align:left;font-family:'DM Sans',sans-serif;}
+td.left{text-align:left;font-family:'DM Sans',sans-serif;white-space:nowrap;}
 tr:hover td{background:rgba(46,134,171,0.04);}
 tr.winner td{background:rgba(233,196,106,0.06);}
 tr.winner td.left{color:var(--gold);font-weight:500;}
@@ -624,8 +624,8 @@ function resetAll() {
   document.getElementById('dateTo')._flatpickr?.clear();
   updateThrowoutInfo();
   resetEntrySession(); renderResults(); updateResultsPanelTitle();
-  showToast('リセットしました');
   if (typeof scheduleSave==='function') scheduleSave();
+  location.reload();
 }
 
 // ── APPLY UI ───────────────────────────────────────────────────────────────
