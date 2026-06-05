@@ -855,7 +855,7 @@ function renderEntryUI(){
         <span class="boat-dot"></span>
         <span style="flex:1">${escHtml(boatName(id))}</span>
         <select class="penalty-select" id="ps_${id}" onclick="event.stopPropagation()" onchange="onPenaltyChange('${id}',this.value)">
-          <option value="">順位</option>
+          <option value="">${LANG==='en'?'Rank':'順位'}</option>
           ${penalties.map(p=>`<option value="${p}">${p}</option>`).join('')}
         </select>
         <span class="tap-hint">${t('tapHint')}</span>
