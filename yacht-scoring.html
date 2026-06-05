@@ -368,7 +368,7 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
 .boat-throwout-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:0.35rem;margin-top:0.4rem;}
 .boat-throwout-item{display:flex;align-items:center;gap:0.4rem;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;padding:0.3rem 0.55rem;}
 .bt-name{font-family:'DM Mono',monospace;color:var(--sky);font-size:0.78rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.bt-input{width:36px;text-align:center;padding:0.2rem 0.25rem;font-size:0.8rem;}
+.bt-input{width:36px!important;flex-shrink:0;text-align:center;padding:0.2rem 0.25rem;font-size:0.8rem;}
 .bt-input::-webkit-inner-spin-button,.bt-input::-webkit-outer-spin-button{-webkit-appearance:none;}
 .bt-input{-moz-appearance:textfield;}
 .handicap-note{font-size:0.72rem;color:var(--muted);margin-bottom:0.4rem;font-family:'DM Sans',sans-serif;}
@@ -395,7 +395,6 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
     </div>
     <div class="header-actions">
       <button class="btn btn-cloud" onclick="openCloudModal()">☁ 大会</button>
-      <button class="btn btn-secondary" onclick="exportPNG()">PNG</button>
       <button class="btn btn-danger" onclick="resetAll()">リセット</button>
     </div>
   </div>
