@@ -10,7 +10,7 @@
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, onSnapshot, orderBy, query } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyA4NTkUqDCA62TisMTpqJARo1UlkI8b4fA",
@@ -31,9 +31,6 @@ const CURRENT_DOC_ID   = '_current';
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 // state は非モジュール側の var state を共有する（window.state）
-let editingRaceIndex = null;
-let currentRanked    = [];
-let currentUnranked  = [];
 let syncTimer        = null;
 let viewingEventId   = null;
 let unsubscribe      = null;
@@ -129,6 +126,7 @@ async function loadViewEvent() {
     delete window.state._savedAt; delete window.state._updatedAt;
     localStorage.setItem('regattaScorer3', JSON.stringify(window.state));
     applyStateToUI();
+    scheduleSave();
     closeViewEvent();
     closeCloudModal();
     showToast('大会データを読み込みました');
@@ -296,14 +294,6 @@ select option{background:var(--deep);}
 .rank-num{font-family:'Bebas Neue',sans-serif;font-size:1.05rem;min-width:22px;text-align:center;}
 .rank-1-c{color:var(--gold);}.rank-2-c{color:var(--sky);}.rank-3-c{color:var(--green);}.rank-n-c{color:var(--muted);}
 .ranked-boat-name{font-family:'DM Mono',monospace;font-size:0.86rem;flex:1;}
-.ranked-status{font-size:0.66rem;padding:0.1rem 0.32rem;border-radius:3px;letter-spacing:0.04em;}
-.rs-dns,.rs-dnf{background:rgba(230,57,70,0.2);color:#ff8f9a;}
-.rs-dnc{background:rgba(100,100,100,0.3);color:#aaa;}
-.rs-ocs{background:rgba(233,196,106,0.2);color:var(--gold);}
-.rs-dsq,.rs-bfd,.rs-ufd{background:rgba(230,57,70,0.35);color:#ff6b7a;}
-.rs-ret{background:rgba(150,100,50,0.3);color:#c8956a;}
-.rs-dne{background:rgba(180,0,180,0.25);color:#e89eff;}
-.rs-zfp{background:rgba(130,80,200,0.2);color:#c4a0ff;}
 .undo-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:0.82rem;padding:0.12rem 0.22rem;border-radius:4px;transition:all 0.15s;line-height:1;flex-shrink:0;}
 .undo-btn:hover{color:var(--red);background:rgba(230,57,70,0.1);}
 .progress-bar-wrap{height:3px;background:rgba(255,255,255,0.07);border-radius:2px;margin-bottom:0.7rem;overflow:hidden;}
@@ -620,8 +610,8 @@ function resetAll() {
   localStorage.setItem('regattaScorer3', JSON.stringify(state));
   document.getElementById('seriesName').value='';
   document.getElementById('throwouts').value=1;
-  document.getElementById('dateFrom')._flatpickr?.clear();
-  document.getElementById('dateTo')._flatpickr?.clear();
+  if(fpFrom) fpFrom.clear();
+  if(fpTo) fpTo.clear();
   updateThrowoutInfo();
   resetEntrySession(); renderResults(); updateResultsPanelTitle();
   if (typeof scheduleSave==='function') scheduleSave();
@@ -638,12 +628,6 @@ function applyStateToUI() {
   renderBoatsList(); resetEntrySession(); renderResults(); updateResultsPanelTitle();
 }
 
-function onDateFromChange(){
-  const from=document.getElementById('dateFrom').value;
-  const to=document.getElementById('dateTo');
-  if(from && !to.value) to.value=from;
-  saveState();
-}
 function updateResultsPanelTitle(){document.getElementById('resultsPanelTitle').textContent=(state.seriesName||'シリーズ')+'　成績表';}
 function updateThrowoutInfo(){
   const t=parseInt(document.getElementById('throwouts').value)||0;
@@ -759,7 +743,6 @@ function renderEntryUI(){
     if(!isP) fp++;
     const dr=isP?'—':fp;
     const rc=fp===1?'rank-1-c':fp===2?'rank-2-c':fp===3?'rank-3-c':'rank-n-c';
-    const penalties=['DNS','DNC','OCS','DNF','RET','DSQ','BFD','UFD','DNE','ZFP'];
     return `<div class="ranked-item">
       <span class="rank-num ${isP?'rank-n-c':rc}">${dr}</span>
       <span class="ranked-boat-name">${escHtml(boatName(item.boatId))}</span>
