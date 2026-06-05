@@ -76,11 +76,12 @@ async function renderEventList() {
     const snap = await getDocs(collection(db,'events'));
     const events = [];
     snap.forEach(d => { if (d.id !== CURRENT_DOC_ID) events.push({id:d.id,...d.data()}); });
-    events.sort((a,b)=>(b._savedAt||0)-(a._savedAt||0));
+    events.sort((a,b)=>(a.dateFrom||'').localeCompare(b.dateFrom||''));
     if (events.length===0) { el.innerHTML='<div class="drive-status">保存済みの大会がありません</div>'; return; }
     el.innerHTML = events.map(ev => {
-      const dt = ev._savedAt ? new Date(ev._savedAt) : null;
-      const ds = dt ? `${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')}` : '';
+      const from = ev.dateFrom||'';
+      const to   = ev.dateTo||'';
+      const ds   = from ? (to && to!==from ? `${from} 〜 ${to}` : from) : '';
       const raceCount = (ev.races||[]).length;
       const boatCount = (ev.boats||[]).length;
       return `<div class="drive-item" onclick="openViewEvent('${ev.id}')">
@@ -612,7 +613,7 @@ function saveState() {
 // ── RESET ──────────────────────────────────────────────────────────────────
 function resetAll() {
   if (!confirm('参加艇以外をリセットしますか？\n（保存済みの過去大会は残ります）')) return;
-  const boats=state.boats;
+  const boats=state.boats.map(b=>({...b,throwoutOverride:null}));
   state={seriesName:'',totalRaces:7,throwouts:1,zfpPct:20,boats,races:[],dateFrom:'',dateTo:''};
   localStorage.setItem('regattaScorer3', JSON.stringify(state));
   document.getElementById('seriesName').value='';
