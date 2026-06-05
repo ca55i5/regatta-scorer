@@ -49,8 +49,20 @@ function scheduleSave() {
   }, 1200);
 }
 
+// ── ADMIN AUTH ────────────────────────────────────────────────────────────────
+const ADMIN_PASS = 'regatta2025'; // ← ここを変更してください
+function checkAdmin() {
+  if (sessionStorage.getItem('adminAuth') === '1') return true;
+  const input = prompt('パスワードを入力してください');
+  if (input === null) return false; // キャンセル
+  if (input === ADMIN_PASS) { sessionStorage.setItem('adminAuth','1'); return true; }
+  showToast('パスワードが違います');
+  return false;
+}
+
 // ── FIREBASE: save as named event ─────────────────────────────────────────────
 async function saveAsEvent() {
+  if (!checkAdmin()) return;
   const name = window.state.seriesName.trim();
   if (!name) { showToast('先に大会名を入力してください'); switchTab('setup'); return; }
   const btn = document.getElementById('saveEventBtn');
@@ -135,6 +147,7 @@ async function loadViewEvent() {
 
 async function deleteViewEvent() {
   if (!viewingEventId) return;
+  if (!checkAdmin()) return;
   const title = document.getElementById('viewEventTitle').textContent;
   if (!confirm(`「${title}」を削除しますか？`)) return;
   try {
