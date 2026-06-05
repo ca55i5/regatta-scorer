@@ -181,6 +181,13 @@ function startRealtimeSync() {
   });
 }
 
+// 即時保存（リセット時などデバウンスなしで使う）
+async function saveNow() {
+  try {
+    await setDoc(doc(db,'events', CURRENT_DOC_ID), { ...window.state, _updatedAt: Date.now() });
+  } catch(e) {}
+}
+
 // グローバルに公開
 window.openViewEvent  = openViewEvent;
 window.closeViewEvent = closeViewEvent;
@@ -189,6 +196,7 @@ window.deleteViewEvent= deleteViewEvent;
 window.saveAsEvent    = saveAsEvent;
 window.renderEventList= renderEventList;
 window.scheduleSave   = scheduleSave;
+window.saveNow        = saveNow;
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 window.addEventListener('load', async () => {
@@ -735,8 +743,8 @@ function resetAll() {
   if(fpTo) fpTo.clear();
   updateThrowoutInfo();
   resetEntrySession(); renderResults(); updateResultsPanelTitle();
-  if (typeof scheduleSave==='function') scheduleSave();
-  location.reload();
+  if (typeof saveNow==='function') saveNow().then(()=>location.reload());
+  else location.reload();
 }
 
 
