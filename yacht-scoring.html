@@ -427,8 +427,10 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
           <input type="number" id="throwouts" min="0" max="10" value="1" oninput="updateThrowoutInfo();saveState()">
           <div class="throwout-info" id="throwoutInfo"></div>
         </div>
-        <div><label>開始日</label><input type="text" id="dateFrom" placeholder="2025/06/01" readonly></div>
-        <div><label>終了日</label><input type="text" id="dateTo" placeholder="2025/06/03" readonly></div>
+        <div style="grid-column:1/-1;display:flex;gap:0.85rem;">
+          <div style="flex:1;min-width:0;"><label>開始日</label><input type="text" id="dateFrom" placeholder="2025/06/01" readonly></div>
+          <div style="flex:1;min-width:0;"><label>終了日</label><input type="text" id="dateTo" placeholder="2025/06/03" readonly></div>
+        </div>
       </div>
     </div>
     <div class="panel">
@@ -1017,8 +1019,8 @@ flatpickr('#dateFrom', {
   dateFormat: 'Y/m/d',
   locale: { firstDayOfWeek: 1 },
   onChange: function(dates, dateStr) {
-    const to = document.getElementById('dateTo');
-    if (dateStr && !to.value) to.value = dateStr;
+    const fpTo = document.getElementById('dateTo')._flatpickr;
+    if (dateStr && fpTo && !fpTo.selectedDates.length) fpTo.setDate(dateStr);
     saveState();
   }
 });
