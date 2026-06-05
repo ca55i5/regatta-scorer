@@ -216,8 +216,17 @@ body{background:var(--navy);color:var(--salt);font-family:'DM Sans',sans-serif;m
 body::before{content:'';position:fixed;bottom:0;left:0;right:0;height:300px;background:linear-gradient(180deg,transparent 0%,rgba(14,52,96,0.4) 100%);pointer-events:none;z-index:0;}
 header{background:linear-gradient(135deg,var(--deep) 0%,var(--ocean) 100%);border-bottom:2px solid var(--foam);padding:0 1rem;position:sticky;top:0;z-index:100;box-shadow:0 4px 30px rgba(0,0,0,0.5);}
 .header-inner{max-width:1400px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px;gap:0.5rem;}
-.logo{font-family:'Bebas Neue',sans-serif;font-size:1.6rem;letter-spacing:0.12em;color:var(--sky);display:flex;align-items:center;gap:0.3rem;white-space:nowrap;flex-shrink:0;}
-.logo span{color:var(--gold);}
+.logo{display:flex;align-items:center;flex-shrink:0;}
+.logo-anim-wrap{position:relative;display:inline-flex;align-items:center;height:60px;overflow:hidden;}
+.logo-label{font-family:'Bebas Neue',sans-serif;font-size:1.6rem;letter-spacing:0.12em;color:var(--sky);white-space:nowrap;line-height:1;}
+.sail-mover{position:absolute;top:8px;animation:sailMove 6s linear infinite;pointer-events:none;z-index:10;}
+.sail-boat{display:inline-block;font-size:1.1rem;animation:boatBob 1.9s ease-in-out infinite;}
+.wc{display:inline-block;animation:waveChar 1.5s ease-in-out infinite;color:var(--sky);}
+.wc.sc{color:var(--gold);}
+.wsp{display:inline-block;width:0.35em;}
+@keyframes sailMove{0%{left:-1.8em;}100%{left:108%;}}
+@keyframes boatBob{0%,100%{transform:translateY(0);}50%{transform:translateY(-5px);}}
+@keyframes waveChar{0%,100%{transform:translateY(0);}50%{transform:translateY(-4px);}}
 .header-actions{display:flex;gap:0.35rem;align-items:center;flex-shrink:0;}
 @media(max-width:420px){.logo{font-size:1.1rem;}.btn{font-size:0.7rem;padding:0.38rem 0.55rem;}}
 .main{max-width:1400px;margin:0 auto;padding:1.1rem;position:relative;z-index:1;}
@@ -356,11 +365,13 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
 .edit-rank-input{width:52px;text-align:center;font-size:0.88rem;padding:0.32rem 0.28rem;}
 .edit-status-select{font-size:0.76rem;padding:0.32rem 0.28rem;}
 /* handicap */
-.boat-throwout-row{display:flex;align-items:center;gap:0.5rem;padding:0.28rem 0;border-bottom:1px solid rgba(255,255,255,0.04);}
-.boat-throwout-row:last-child{border-bottom:none;}
-.bt-name{flex:1;font-family:'DM Mono',monospace;color:var(--sky);font-size:0.82rem;}
-.bt-input{width:56px;text-align:center;padding:0.28rem 0.35rem;font-size:0.82rem;}
-.bt-hint{font-size:0.7rem;color:var(--muted);white-space:nowrap;min-width:72px;}
+.boat-throwout-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:0.35rem;margin-top:0.4rem;}
+.boat-throwout-item{display:flex;align-items:center;gap:0.4rem;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;padding:0.3rem 0.55rem;}
+.bt-name{font-family:'DM Mono',monospace;color:var(--sky);font-size:0.78rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.bt-input{width:36px;text-align:center;padding:0.2rem 0.25rem;font-size:0.8rem;}
+.bt-input::-webkit-inner-spin-button,.bt-input::-webkit-outer-spin-button{-webkit-appearance:none;}
+.bt-input{-moz-appearance:textfield;}
+.handicap-note{font-size:0.72rem;color:var(--muted);margin-bottom:0.4rem;font-family:'DM Sans',sans-serif;}
 .throwout-info{font-size:0.74rem;color:var(--muted);background:rgba(255,255,255,0.03);border-radius:5px;padding:0.45rem 0.75rem;margin-top:0.38rem;font-family:'DM Mono',monospace;line-height:1.6;}
 .highlight{color:var(--sky);}
 .empty{text-align:center;padding:2.2rem 1rem;color:var(--muted);font-size:0.86rem;}
@@ -375,7 +386,13 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
 
 <header>
   <div class="header-inner">
-    <div class="logo">⛵ REGATTA <span>SCORER</span></div>
+    <div class="logo">
+      <div class="logo-anim-wrap">
+        <span class="sail-mover" aria-hidden="true"><span class="sail-boat"><svg viewBox="0 0 30 26" width="28" height="24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M23 4 L13 0 L8 17 L23 18 Z" fill="#a8dadc" stroke="#a8dadc" stroke-width="0.7"/><line x1="23" y1="3" x2="23" y2="19" stroke="#a8dadc" stroke-width="1.5"/><path d="M3 20 L6 23 L26 23 L27 19 L23 19 Z" fill="#a8dadc" opacity="0.85"/><path d="M6 22 L5 26 L3 26 L4 22 Z" fill="#a8dadc" opacity="0.7"/></svg></span></span>
+        <span class="sail-mover" style="animation-duration:4.5s;animation-delay:-1.5s;top:14px;" aria-hidden="true"><span class="sail-boat" style="animation-duration:1.5s;"><svg viewBox="0 0 30 26" width="28" height="24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M23 4 L13 0 L8 17 L23 18 Z" fill="#a8dadc" stroke="#a8dadc" stroke-width="0.7"/><line x1="23" y1="3" x2="23" y2="19" stroke="#a8dadc" stroke-width="1.5"/><path d="M3 20 L6 23 L26 23 L27 19 L23 19 Z" fill="#a8dadc" opacity="0.85"/><path d="M6 22 L5 26 L3 26 L4 22 Z" fill="#a8dadc" opacity="0.7"/></svg></span></span>
+        <span class="logo-label"><span class="wc" style="animation-delay:0s">R</span><span class="wc" style="animation-delay:.12s">E</span><span class="wc" style="animation-delay:.24s">G</span><span class="wc" style="animation-delay:.36s">A</span><span class="wc" style="animation-delay:.48s">T</span><span class="wc" style="animation-delay:.60s">T</span><span class="wc" style="animation-delay:.72s">A</span><span class="wsp"> </span><span class="wc sc" style="animation-delay:.96s">S</span><span class="wc sc" style="animation-delay:1.08s">C</span><span class="wc sc" style="animation-delay:1.20s">O</span><span class="wc sc" style="animation-delay:1.32s">R</span><span class="wc sc" style="animation-delay:1.44s">E</span><span class="wc sc" style="animation-delay:1.56s">R</span></span>
+      </div>
+    </div>
     <div class="header-actions">
       <button class="btn btn-cloud" onclick="openCloudModal()">☁ 大会</button>
       <button class="btn btn-secondary" onclick="exportPNG()">PNG</button>
@@ -403,13 +420,11 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
       <div class="panel-title">シリーズ設定</div>
       <div class="setup-grid">
         <div><label>大会名</label><input type="text" id="seriesName" placeholder="2025 Summer Series" oninput="saveState()"></div>
-        <div><label>合計レース予定数</label><input type="number" id="totalRaces" min="1" max="99" value="7" oninput="updateThrowoutInfo();saveState()"></div>
         <div>
           <label>捨てレース数（Throwout）</label>
           <input type="number" id="throwouts" min="0" max="10" value="1" oninput="updateThrowoutInfo();saveState()">
           <div class="throwout-info" id="throwoutInfo"></div>
         </div>
-        <div><label>ZFPペナルティ割合（%）</label><input type="number" id="zfpPct" min="1" max="100" value="20" oninput="saveState()"></div>
       </div>
     </div>
     <div class="panel">
@@ -421,8 +436,9 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
       <div class="boats-list" id="boatsList"></div>
     </div>
     <div class="panel" id="handicapPanel" style="display:none;">
-      <div class="panel-title">個別捨てレース設定（ハンデ）<span style="font-size:0.7rem;color:var(--muted);font-family:'DM Sans';letter-spacing:0;margin-left:0.5rem;">空欄=共通設定</span></div>
-      <div id="boatThrowoutList"></div>
+      <div class="panel-title">個別捨てレース設定</div>
+      <p class="handicap-note">空欄の場合は「捨てレース数」に設定した数を適用します。</p>
+      <div class="boat-throwout-grid" id="boatThrowoutList"></div>
     </div>
   </div>
 
@@ -432,7 +448,7 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
       <div class="race-header">
         <span class="race-num" id="raceNumLabel">RACE #1</span>
         <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
-          <button class="btn btn-secondary" onclick="openRaceListModal()">過去レース編集</button>
+          <button class="btn btn-secondary" onclick="openRaceListModal()">RACE着順編集</button>
           <button class="btn btn-gold" onclick="saveRace()" id="saveBtn">保存</button>
         </div>
       </div>
@@ -454,20 +470,26 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
     <div class="panel">
       <div class="panel-title">ステータスコード</div>
       <div class="code-legend">
-        <span><b>DNS</b> Did Not Start</span><span><b>DNC</b> Did Not Come</span>
-        <span><b>OCS</b> フライング</span><span><b>DNF</b> Did Not Finish</span>
-        <span><b>RET</b> Retired</span><span><b>DSQ</b> Disqualification</span>
+        <span><b>DNS</b> スタートせず</span><span><b>DNC</b> 出場せず</span>
+        <span><b>OCS</b> フライング</span><span><b>DNF</b> フィニッシュせず</span>
+        <span><b>RET</b> リタイア</span><span><b>DSQ</b> 失格</span>
         <span><b>BFD</b> 黒旗失格</span><span><b>UFD</b> U旗失格</span>
-        <span><b>DNE</b> 除外不可失格</span><span><b>ZFP</b> Z旗ペナルティ（<span id="zfpLabel2">20</span>%）</span>
+        <span><b>DNE</b> 除外不可失格</span><span><b>ZFP</b> Z旗ペナルティ（20%）</span>
       </div>
-      <p style="font-size:0.72rem;color:var(--muted);margin-top:0.55rem;">DNS〜DNE → 出走艇数＋1点。<b style="color:#e89eff">DNEは捨てレース不可（RRS 90.3b）</b>。ZFP → <span id="zfpLabel">20</span>%加算。</p>
+      <p style="font-size:0.72rem;color:var(--muted);margin-top:0.55rem;">DNS〜DNE → 出走艇数＋1点。<b style="color:#e89eff">DNEは捨てレース不可（RRS 90.3b）</b>。ZFP → 20%加算。</p>
     </div>
   </div>
 
   <!-- RESULTS -->
   <div class="tab-content" id="tab-results">
     <div class="panel">
-      <div class="panel-title" id="resultsPanelTitle">シリーズ成績表</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.9rem;">
+        <div class="panel-title" id="resultsPanelTitle" style="margin-bottom:0;">シリーズ成績表</div>
+        <div style="display:flex;gap:0.4rem;">
+          <button class="btn btn-secondary" onclick="exportPNG()">PNG 保存</button>
+          <button class="btn btn-secondary" onclick="copyPNG()">📋 コピー</button>
+        </div>
+      </div>
       <div class="results-wrap"><div id="resultsTable"></div></div>
       <div class="tiebreak-note">※ タイブレーク：A8.1 成績を良い順に比較（捨てレース除く）→ A8.2 最終レースから遡る</div>
     </div>
@@ -573,10 +595,8 @@ function migrateState(s) {
 // ── SAVE ──────────────────────────────────────────────────────────────────
 function saveState() {
   state.seriesName=document.getElementById('seriesName').value;
-  state.totalRaces=parseInt(document.getElementById('totalRaces').value)||7;
   state.throwouts =parseInt(document.getElementById('throwouts').value)||0;
-  state.zfpPct    =parseInt(document.getElementById('zfpPct').value)||20;
-  updateZfpLabels();
+  state.zfpPct    =20;
   localStorage.setItem('regattaScorer3', JSON.stringify(state));
   renderResults(); updateResultsPanelTitle();
   if (typeof scheduleSave==='function') scheduleSave();
@@ -584,15 +604,13 @@ function saveState() {
 
 // ── RESET ──────────────────────────────────────────────────────────────────
 function resetAll() {
-  if (!confirm('現在の入力内容をリセットしますか？\n（保存済みの過去大会は削除されません）')) return;
-  state={seriesName:'',totalRaces:7,throwouts:1,zfpPct:20,boats:[],races:[]};
-  localStorage.removeItem('regattaScorer3');
+  if (!confirm('レース入力内容をリセットしますか？\n（艇リストと保存済みの過去大会は残ります）')) return;
+  state.seriesName=''; state.races=[]; state.zfpPct=20;
+  localStorage.setItem('regattaScorer3', JSON.stringify(state));
   document.getElementById('seriesName').value='';
-  document.getElementById('totalRaces').value=7;
-  document.getElementById('throwouts').value=1;
-  document.getElementById('zfpPct').value=20;
-  updateZfpLabels(); updateThrowoutInfo();
-  renderBoatsList(); resetEntrySession(); renderResults(); updateResultsPanelTitle();
+  document.getElementById('throwouts').value=state.throwouts??1;
+  updateThrowoutInfo();
+  resetEntrySession(); renderResults(); updateResultsPanelTitle();
   showToast('リセットしました');
   if (typeof scheduleSave==='function') scheduleSave();
 }
@@ -600,20 +618,16 @@ function resetAll() {
 // ── APPLY UI ───────────────────────────────────────────────────────────────
 function applyStateToUI() {
   document.getElementById('seriesName').value =state.seriesName||'';
-  document.getElementById('totalRaces').value =state.totalRaces||7;
   document.getElementById('throwouts').value  =state.throwouts??1;
-  document.getElementById('zfpPct').value     =state.zfpPct||20;
-  updateZfpLabels(); updateThrowoutInfo();
+  updateThrowoutInfo();
   renderBoatsList(); resetEntrySession(); renderResults(); updateResultsPanelTitle();
 }
 
-function updateZfpLabels(){const v=state.zfpPct||20;document.getElementById('zfpLabel').textContent=v;document.getElementById('zfpLabel2').textContent=v;}
 function updateResultsPanelTitle(){document.getElementById('resultsPanelTitle').textContent=(state.seriesName||'シリーズ')+'　成績表';}
 function updateThrowoutInfo(){
-  const total=parseInt(document.getElementById('totalRaces').value)||0;
   const t=parseInt(document.getElementById('throwouts').value)||0;
   document.getElementById('throwoutInfo').innerHTML=t===0?'捨てレースなし'
-    :`全<span class="highlight">${total}</span>レース中、最悪<span class="highlight">${t}</span>レースを除外`;
+    :`最悪<span class="highlight">${t}</span>レースを除外`;
 }
 
 // ── BOATS ──────────────────────────────────────────────────────────────────
@@ -669,8 +683,6 @@ document.getElementById('boatThrowoutList').addEventListener('input', e=>{
   const boat=state.boats.find(b=>b.id===id);
   if (!boat) return;
   boat.throwoutOverride = val===''?null:parseInt(val);
-  const hint=e.target.nextElementSibling;
-  if (hint) hint.textContent=val!==''?`捨て${val}レース`:`共通(${state.throwouts||0})`;
   saveState();
 });
 
@@ -679,13 +691,11 @@ function renderBoatThrowoutList(){
   const list=document.getElementById('boatThrowoutList');
   if (!state.boats.length){panel.style.display='none';return;}
   panel.style.display='block';
-  const globalT=state.throwouts||0;
   list.innerHTML=state.boats.map(b=>{
     const ov=b.throwoutOverride!=null?b.throwoutOverride:'';
-    return `<div class="boat-throwout-row">
+    return `<div class="boat-throwout-item">
       <span class="bt-name">${escHtml(b.name)}</span>
-      <input type="number" class="bt-input" data-id="${b.id}" min="0" max="20" placeholder="${globalT}" value="${ov}">
-      <span class="bt-hint">${ov!==''?`捨て${ov}レース`:`共通(${globalT})`}</span>
+      <input type="number" class="bt-input" data-id="${b.id}" min="0" max="20" value="${ov}" placeholder="">
     </div>`;
   }).join('');
 }
@@ -846,6 +856,24 @@ async function exportPNG(){
     a.download=(state.seriesName||'regatta')+'_results.png';
     a.click();
     showToast('PNG保存しました');
+  }catch(e){showToast('PNG生成失敗');}
+  finally{cap.style.cssText='position:fixed;left:-9999px;top:0;background:#0a1628;padding:24px;min-width:600px;z-index:-1;';cap.innerHTML='';}
+}
+
+async function copyPNG(){
+  if(!state.races.length){showToast('データがありません');return;}
+  showToast('PNG生成中...');
+  const cap=document.getElementById('pngCapture');
+  cap.innerHTML=buildResultsHTML(state,true);
+  cap.style.cssText='position:absolute;left:0;top:0;z-index:-1;background:#0a1628;padding:24px;min-width:600px;';
+  try{
+    const canvas=await html2canvas(cap,{backgroundColor:'#0a1628',scale:2,useCORS:true,logging:false});
+    canvas.toBlob(async blob=>{
+      try{
+        await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
+        showToast('クリップボードにコピーしました');
+      }catch(e){showToast('コピー失敗（ブラウザが非対応の可能性）');}
+    },'image/png');
   }catch(e){showToast('PNG生成失敗');}
   finally{cap.style.cssText='position:fixed;left:-9999px;top:0;background:#0a1628;padding:24px;min-width:600px;z-index:-1;';cap.innerHTML='';}
 }
