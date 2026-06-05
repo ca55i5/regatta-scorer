@@ -611,11 +611,14 @@ function saveState() {
 
 // ── RESET ──────────────────────────────────────────────────────────────────
 function resetAll() {
-  if (!confirm('レース入力内容をリセットしますか？\n（艇リストと保存済みの過去大会は残ります）')) return;
-  state.seriesName=''; state.races=[]; state.zfpPct=20; state.dateFrom=''; state.dateTo='';
+  if (!confirm('参加艇以外をリセットしますか？\n（保存済みの過去大会は残ります）')) return;
+  const boats=state.boats;
+  state={seriesName:'',totalRaces:7,throwouts:1,zfpPct:20,boats,races:[],dateFrom:'',dateTo:''};
   localStorage.setItem('regattaScorer3', JSON.stringify(state));
   document.getElementById('seriesName').value='';
-  document.getElementById('throwouts').value=state.throwouts??1;
+  document.getElementById('throwouts').value=1;
+  document.getElementById('dateFrom')._flatpickr?.clear();
+  document.getElementById('dateTo')._flatpickr?.clear();
   updateThrowoutInfo();
   resetEntrySession(); renderResults(); updateResultsPanelTitle();
   showToast('リセットしました');
@@ -753,10 +756,14 @@ function renderEntryUI(){
     if(!isP) fp++;
     const dr=isP?'—':fp;
     const rc=fp===1?'rank-1-c':fp===2?'rank-2-c':fp===3?'rank-3-c':'rank-n-c';
-    const sb=item.status?`<span class="ranked-status rs-${item.status.toLowerCase()}">${item.status}</span>`:'';
+    const penalties=['DNS','DNC','OCS','DNF','RET','DSQ','BFD','UFD','DNE','ZFP'];
     return `<div class="ranked-item">
       <span class="rank-num ${isP?'rank-n-c':rc}">${dr}</span>
-      <span class="ranked-boat-name">${escHtml(boatName(item.boatId))}</span>${sb}
+      <span class="ranked-boat-name">${escHtml(boatName(item.boatId))}</span>
+      <select class="penalty-select" onchange="changeRankedStatus(${idx},this.value)">
+        <option value="">—</option>
+        ${penalties.map(p=>`<option value="${p}" ${item.status===p?'selected':''}>${p}</option>`).join('')}
+      </select>
       <button class="undo-btn" onclick="undoRanked(${idx})">✕</button>
     </div>`;
   }).join('');
@@ -769,6 +776,10 @@ function tapBoat(id){
   renderEntryUI();
 }
 function onPenaltyChange(id,val){if(val!=='') setTimeout(()=>tapBoat(id),80);}
+function changeRankedStatus(idx,val){
+  currentRanked[idx].status=val;
+  renderEntryUI();
+}
 function undoRanked(idx){
   const item=currentRanked.splice(idx,1)[0];
   const orig=state.boats.map(b=>b.id);
@@ -854,7 +865,12 @@ function buildResultsHTML(st, forExport=false){
     }).join('');
     return `<tr class="${pos===0?'winner':''}"><td>${badge}</td><td class="left">${escHtml(bd.boat.name)}</td>${cells}<td class="score-cell total">${bd.netScore}</td></tr>`;
   }).join('');
-  const title=forExport?`<div style="font-family:'Bebas Neue',sans-serif;font-size:1.4rem;letter-spacing:0.15em;color:#a8dadc;margin-bottom:1rem;">⛵ ${escHtml(st.seriesName||'SERIES')}</div>`:'';
+  let dateStr='';
+  if(st.dateFrom){dateStr=st.dateFrom;if(st.dateTo&&st.dateTo!==st.dateFrom)dateStr+=' 〜 '+st.dateTo;}
+  const title=forExport?`<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:1rem;">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:1.4rem;letter-spacing:0.15em;color:#a8dadc;">⛵ ${escHtml(st.seriesName||'SERIES')}</div>
+    ${dateStr?`<div style="font-family:'DM Mono',monospace;font-size:0.72rem;color:#4a6484;text-align:right;padding-top:0.3rem;">${escHtml(dateStr)}</div>`:''}
+  </div>`:'';
   return `${title}<table><thead><tr><th style="width:34px">#</th><th class="left">艇名</th>${hd}<th>合計</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
