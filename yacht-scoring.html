@@ -28,7 +28,7 @@ const NON_EXCLUDABLE   = ['DNE'];
 const CURRENT_DOC_ID   = '_current';
 
 // ── STATE ────────────────────────────────────────────────────────────────────
-let state = { seriesName:'', totalRaces:7, throwouts:1, zfpPct:20, boats:[], races:[] };
+// state は非モジュール側の var state を共有する（window.state）
 let editingRaceIndex = null;
 let currentRanked    = [];
 let currentUnranked  = [];
@@ -42,7 +42,7 @@ function scheduleSave() {
   clearTimeout(syncTimer);
   syncTimer = setTimeout(async () => {
     try {
-      await setDoc(doc(db,'events', CURRENT_DOC_ID), { ...state, _updatedAt: Date.now() });
+      await setDoc(doc(db,'events', CURRENT_DOC_ID), { ...window.state, _updatedAt: Date.now() });
       setSyncStatus('ok','自動保存: '+new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}));
     } catch(e) {
       setSyncStatus('err','保存失敗: '+e.message);
@@ -52,13 +52,13 @@ function scheduleSave() {
 
 // ── FIREBASE: save as named event ─────────────────────────────────────────────
 async function saveAsEvent() {
-  const name = state.seriesName.trim();
+  const name = window.state.seriesName.trim();
   if (!name) { showToast('先に大会名を入力してください'); switchTab('setup'); return; }
   const btn = document.getElementById('saveEventBtn');
   btn.disabled = true; btn.textContent = '保存中...';
   try {
     const id = 'evt_' + Date.now();
-    await setDoc(doc(db,'events', id), { ...state, _savedAt: Date.now() });
+    await setDoc(doc(db,'events', id), { ...window.state, _savedAt: Date.now() });
     setSyncStatus('ok','「'+name+'」を保存しました');
     showToast('☁ 大会データを保存しました');
     renderEventList();
@@ -122,9 +122,9 @@ async function loadViewEvent() {
     const snap = await getDoc(doc(db,'events',viewingEventId));
     const ev = snap.data();
     migrateState(ev);
-    state = ev;
-    delete state._savedAt; delete state._updatedAt;
-    localStorage.setItem('regattaScorer3', JSON.stringify(state));
+    window.state = ev;
+    delete window.state._savedAt; delete window.state._updatedAt;
+    localStorage.setItem('regattaScorer3', JSON.stringify(window.state));
     applyStateToUI();
     closeViewEvent();
     closeDriveModal();
@@ -153,12 +153,12 @@ function startRealtimeSync() {
     // 自分のsyncTimerが動いている間は無視（自分が書いている最中）
     if (syncTimer) return;
     const remoteTime = remote._updatedAt||0;
-    const localTime  = state._updatedAt||0;
+    const localTime  = window.state._updatedAt||0;
     if (remoteTime > localTime) {
       migrateState(remote);
-      state = remote;
-      delete state._updatedAt;
-      localStorage.setItem('regattaScorer3', JSON.stringify(state));
+      window.state = remote;
+      delete window.state._updatedAt;
+      localStorage.setItem('regattaScorer3', JSON.stringify(window.state));
       applyStateToUI();
       setSyncStatus('ok','他のユーザーが更新しました');
     }
@@ -181,7 +181,7 @@ window.addEventListener('load', async () => {
   // ローカルストレージから復元
   try {
     const raw = localStorage.getItem('regattaScorer3');
-    if (raw) { const s=JSON.parse(raw); migrateState(s); state=s; }
+    if (raw) { const s=JSON.parse(raw); migrateState(s); window.state=s; }
   } catch(e) {}
 
   // Firebaseから最新を取得
@@ -190,11 +190,11 @@ window.addEventListener('load', async () => {
     if (snap.exists()) {
       const remote = snap.data();
       const remoteTime = remote._updatedAt||0;
-      const localTime  = state._updatedAt||0;
+      const localTime  = window.state._updatedAt||0;
       if (remoteTime >= localTime) {
         migrateState(remote);
-        state = remote;
-        delete state._updatedAt;
+        window.state = remote;
+        delete window.state._updatedAt;
       }
     }
     setSyncStatus('ok','接続済み');
@@ -203,7 +203,7 @@ window.addEventListener('load', async () => {
     setSyncStatus('err','オフライン（ローカルデータを使用中）');
   }
 
-  localStorage.setItem('regattaScorer3', JSON.stringify(state));
+  localStorage.setItem('regattaScorer3', JSON.stringify(window.state));
   applyStateToUI();
 });
 
@@ -547,7 +547,7 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
 // ── STATE (non-Firebase) ───────────────────────────────────────────────────
 const PENALTY_STATUSES = ['DNS','DNC','OCS','DNF','RET','DSQ','BFD','UFD','DNE'];
 const NON_EXCLUDABLE   = ['DNE'];
-let state = { seriesName:'', totalRaces:7, throwouts:1, zfpPct:20, boats:[], races:[] };
+var state = { seriesName:'', totalRaces:7, throwouts:1, zfpPct:20, boats:[], races:[] };
 let editingRaceIndex = null;
 let currentRanked    = [];
 let currentUnranked  = [];
