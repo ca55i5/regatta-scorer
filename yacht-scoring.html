@@ -6,6 +6,8 @@
 <title>REGATTA SCORER</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, onSnapshot, orderBy, query } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -127,7 +129,7 @@ async function loadViewEvent() {
     localStorage.setItem('regattaScorer3', JSON.stringify(window.state));
     applyStateToUI();
     closeViewEvent();
-    closeDriveModal();
+    closeCloudModal();
     showToast('大会データを読み込みました');
   } catch(e) { showToast('読み込み失敗'); }
 }
@@ -424,6 +426,8 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
           <input type="number" id="throwouts" min="0" max="10" value="1" oninput="updateThrowoutInfo();saveState()">
           <div class="throwout-info" id="throwoutInfo"></div>
         </div>
+        <div><label>開始日</label><input type="text" id="dateFrom" placeholder="2025/06/01" readonly></div>
+        <div><label>終了日</label><input type="text" id="dateTo" placeholder="2025/06/03" readonly></div>
       </div>
     </div>
     <div class="panel">
@@ -584,6 +588,8 @@ function setSyncStatus(status, msg) {
 function migrateState(s) {
   if (!s.boats) s.boats=[];
   if (!s.races) s.races=[];
+  if (!s.dateFrom) s.dateFrom='';
+  if (!s.dateTo) s.dateTo='';
   if (s.boats.length && typeof s.boats[0]==='string')
     s.boats=s.boats.map((n,i)=>({id:'b'+i,name:n,throwoutOverride:null}));
   s.boats.forEach(b=>{ if(!('throwoutOverride' in b)) b.throwoutOverride=null; });
@@ -596,6 +602,8 @@ function saveState() {
   state.seriesName=document.getElementById('seriesName').value;
   state.throwouts =parseInt(document.getElementById('throwouts').value)||0;
   state.zfpPct    =20;
+  state.dateFrom  =document.getElementById('dateFrom').value;
+  state.dateTo    =document.getElementById('dateTo').value;
   localStorage.setItem('regattaScorer3', JSON.stringify(state));
   renderResults(); updateResultsPanelTitle();
   if (typeof scheduleSave==='function') scheduleSave();
@@ -604,7 +612,7 @@ function saveState() {
 // ── RESET ──────────────────────────────────────────────────────────────────
 function resetAll() {
   if (!confirm('レース入力内容をリセットしますか？\n（艇リストと保存済みの過去大会は残ります）')) return;
-  state.seriesName=''; state.races=[]; state.zfpPct=20;
+  state.seriesName=''; state.races=[]; state.zfpPct=20; state.dateFrom=''; state.dateTo='';
   localStorage.setItem('regattaScorer3', JSON.stringify(state));
   document.getElementById('seriesName').value='';
   document.getElementById('throwouts').value=state.throwouts??1;
@@ -618,10 +626,18 @@ function resetAll() {
 function applyStateToUI() {
   document.getElementById('seriesName').value =state.seriesName||'';
   document.getElementById('throwouts').value  =state.throwouts??1;
+  document.getElementById('dateFrom').value   =state.dateFrom||'';
+  document.getElementById('dateTo').value     =state.dateTo||'';
   updateThrowoutInfo();
   renderBoatsList(); resetEntrySession(); renderResults(); updateResultsPanelTitle();
 }
 
+function onDateFromChange(){
+  const from=document.getElementById('dateFrom').value;
+  const to=document.getElementById('dateTo');
+  if(from && !to.value) to.value=from;
+  saveState();
+}
 function updateResultsPanelTitle(){document.getElementById('resultsPanelTitle').textContent=(state.seriesName||'シリーズ')+'　成績表';}
 function updateThrowoutInfo(){
   const t=parseInt(document.getElementById('throwouts').value)||0;
@@ -776,20 +792,26 @@ function saveRace(){
 }
 
 // ── SCORING ────────────────────────────────────────────────────────────────
-function computeRaceScore(entry,n,zfpPct){
-  const p=n+1;
-  if(PENALTY_STATUSES.includes(entry.status)) return p;
-  if(!entry.rank) return p;
-  if(entry.status==='ZFP') return Math.min(Math.round(entry.rank*(1+zfpPct/100)*10)/10,p);
-  return entry.rank;
-}
-
 function computeSeriesFor(st){
   const globalT=st.throwouts||0, zfpPct=st.zfpPct||20, n=st.boats.length;
+  // 各レースでペナルティ艇を除いて実効順位を再計算（繰り上がり対応）
+  const effRankMaps=st.races.map(race=>{
+    const m=new Map();
+    race.entries
+      .filter(e=>!PENALTY_STATUSES.includes(e.status)&&e.rank!=null)
+      .sort((a,b)=>a.rank-b.rank)
+      .forEach((e,i)=>m.set(e.boatId,i+1));
+    return m;
+  });
   const boatData=st.boats.map(b=>{
-    const raceScores=st.races.map(race=>{
+    const raceScores=st.races.map((race,ri)=>{
       const e=race.entries.find(e=>e.boatId===b.id);
-      return e?computeRaceScore(e,n,zfpPct):n+1;
+      if(!e) return n+1;
+      if(PENALTY_STATUSES.includes(e.status)) return n+1;
+      const effRank=effRankMaps[ri].get(b.id);
+      if(!effRank) return n+1;
+      if(e.status==='ZFP') return Math.min(Math.round(effRank*(1+zfpPct/100)*10)/10,n+1);
+      return effRank;
     });
     const nonExcIdx=new Set(st.races.map((race,ri)=>{
       const e=race.entries.find(e=>e.boatId===b.id);
@@ -953,6 +975,22 @@ function showToast(msg){const el=document.getElementById('toast');el.textContent
 // initial render (before Firebase loads)
 updateThrowoutInfo();
 renderResults();
+
+// flatpickr カレンダー初期化
+flatpickr('#dateFrom', {
+  dateFormat: 'Y/m/d',
+  locale: { firstDayOfWeek: 1 },
+  onChange: function(dates, dateStr) {
+    const to = document.getElementById('dateTo');
+    if (dateStr && !to.value) to.value = dateStr;
+    saveState();
+  }
+});
+flatpickr('#dateTo', {
+  dateFormat: 'Y/m/d',
+  locale: { firstDayOfWeek: 1 },
+  onChange: function() { saveState(); }
+});
 </script>
 </body>
 </html>
