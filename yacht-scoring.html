@@ -632,8 +632,8 @@ function resetAll() {
 function applyStateToUI() {
   document.getElementById('seriesName').value =state.seriesName||'';
   document.getElementById('throwouts').value  =state.throwouts??1;
-  document.getElementById('dateFrom').value   =state.dateFrom||'';
-  document.getElementById('dateTo').value     =state.dateTo||'';
+  if(fpFrom) state.dateFrom?fpFrom.setDate(state.dateFrom):fpFrom.clear();
+  if(fpTo)   state.dateTo  ?fpTo.setDate(state.dateTo)    :fpTo.clear();
   updateThrowoutInfo();
   renderBoatsList(); resetEntrySession(); renderResults(); updateResultsPanelTitle();
 }
@@ -914,7 +914,9 @@ async function copyPNG(){
       // 1. Web Share API（スマホ優先：ネイティブ共有シートが開く）
       if(navigator.share && navigator.canShare?.({files:[file]})){
         try{
-          await navigator.share({files:[file],title:state.seriesName||'成績表'});
+          const dateRange=state.dateFrom?(state.dateTo&&state.dateTo!==state.dateFrom?`${state.dateFrom}〜${state.dateTo}`:state.dateFrom):'';
+        const shareTitle=(state.seriesName||'成績表')+(dateRange?`（${dateRange}）`:'');
+        await navigator.share({files:[file],title:shareTitle});
           showToast('共有しました');
           return;
         }catch(e){ if(e.name==='AbortError') return; } // キャンセルは無視
@@ -1015,11 +1017,10 @@ updateThrowoutInfo();
 renderResults();
 
 // flatpickr カレンダー初期化
-flatpickr('#dateFrom', {
+var fpFrom = flatpickr('#dateFrom', {
   dateFormat: 'Y/m/d',
   locale: { firstDayOfWeek: 1 },
   onChange: function(dates, dateStr) {
-    const fpTo = document.getElementById('dateTo')._flatpickr;
     if (dateStr && fpTo) {
       const toDate = fpTo.selectedDates[0];
       if (!toDate || toDate < dates[0]) fpTo.setDate(dateStr);
@@ -1027,7 +1028,7 @@ flatpickr('#dateFrom', {
     saveState();
   }
 });
-flatpickr('#dateTo', {
+var fpTo = flatpickr('#dateTo', {
   dateFormat: 'Y/m/d',
   locale: { firstDayOfWeek: 1 },
   onChange: function() { saveState(); }
