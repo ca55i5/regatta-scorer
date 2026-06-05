@@ -906,11 +906,22 @@ async function copyPNG(){
   cap.style.cssText='position:absolute;left:0;top:0;z-index:-1;background:#0a1628;padding:24px;min-width:600px;';
   try{
     const canvas=await html2canvas(cap,{backgroundColor:'#0a1628',scale:2,useCORS:true,logging:false});
+    const dataUrl=canvas.toDataURL('image/png');
     canvas.toBlob(async blob=>{
       try{
         await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
         showToast('クリップボードにコピーしました');
-      }catch(e){showToast('コピー失敗（ブラウザが非対応の可能性）');}
+      }catch(e){
+        // スマホなど非対応ブラウザは新タブで画像を開く（長押しで保存・コピー可）
+        const w=window.open('','_blank');
+        if(w){
+          w.document.write(`<html><body style="margin:0;background:#000;display:flex;justify-content:center;align-items:center;min-height:100vh;"><img src="${dataUrl}" style="max-width:100%;"></body></html>`);
+          w.document.close();
+          showToast('新しいタブで開きました（長押しで保存・コピー）');
+        }else{
+          showToast('ポップアップをブロックされています');
+        }
+      }
     },'image/png');
   }catch(e){showToast('PNG生成失敗');}
   finally{cap.style.cssText='position:fixed;left:-9999px;top:0;background:#0a1628;padding:24px;min-width:600px;z-index:-1;';cap.innerHTML='';}
