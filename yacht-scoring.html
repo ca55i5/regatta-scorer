@@ -399,11 +399,11 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
 .race-summary{font-size:0.76rem;color:var(--muted);font-family:'DM Mono',monospace;}
 .race-comment{font-size:0.74rem;color:var(--sky);opacity:0.8;font-family:'DM Mono',monospace;}
 .wind-select{background:var(--input-bg);border:1px solid var(--border);border-radius:5px;padding:0.28rem 0.4rem;color:var(--salt);font-family:'DM Mono',monospace;font-size:0.78rem;outline:none;}
-.edit-row{display:flex;align-items:center;gap:0.45rem;padding:0.32rem 0;border-bottom:1px solid rgba(255,255,255,0.05);}
+.edit-row{display:flex;align-items:center;gap:0.45rem;padding:0.32rem 0;border-bottom:1px solid rgba(255,255,255,0.05);flex-wrap:nowrap;}
 .edit-row:last-child{border-bottom:none;}
-.edit-boat-name{flex:1;font-family:'DM Mono',monospace;font-size:0.85rem;}
-.edit-rank-input{width:52px;text-align:center;font-size:0.88rem;padding:0.32rem 0.28rem;}
-.edit-status-select{font-size:0.76rem;padding:0.32rem 0.28rem;}
+.edit-boat-name{flex:1;font-family:'DM Mono',monospace;font-size:0.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:60px;}
+.edit-rank-input{width:52px;flex-shrink:0;text-align:center;font-size:0.88rem;padding:0.32rem 0.28rem;}
+.edit-status-select{font-size:0.76rem;padding:0.32rem 0.28rem;flex-shrink:0;width:80px;}
 /* handicap */
 .boat-throwout-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:0.35rem;margin-top:0.4rem;}
 .boat-throwout-item{display:flex;align-items:center;gap:0.4rem;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;padding:0.3rem 0.55rem;}
@@ -1150,8 +1150,8 @@ function openEditRace(i){
   document.getElementById('editRaceForm').innerHTML=race.entries.map((e,j)=>`
     <div class="edit-row">
       <span class="edit-boat-name">${escHtml(boatName(e.boatId))}</span>
-      <input type="number" class="edit-rank-input" id="er_${j}" value="${e.rank||''}" min="1" placeholder="順位">
-      <select class="edit-status-select" id="es_${j}">
+      <input type="number" class="edit-rank-input" id="er_${j}" value="${e.rank||''}" min="1" placeholder="順位" style="width:60px;flex-shrink:0;">
+      <select class="edit-status-select" id="es_${j}" style="width:80px;flex-shrink:0;">
         <option value="">—</option>
         ${['DNS','DNC','OCS','DNF','RET','DSQ','BFD','UFD','DNE','ZFP'].map(s=>`<option value="${s}" ${e.status===s?'selected':''}>${s}</option>`).join('')}
       </select>
