@@ -397,6 +397,8 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
 .race-card-info{display:flex;align-items:center;gap:0.7rem;flex-wrap:wrap;}
 .race-pill{font-family:'Bebas Neue',sans-serif;font-size:0.85rem;letter-spacing:0.1em;background:var(--ocean);padding:0.15rem 0.55rem;border-radius:4px;color:var(--sky);}
 .race-summary{font-size:0.76rem;color:var(--muted);font-family:'DM Mono',monospace;}
+.race-comment{font-size:0.74rem;color:var(--sky);opacity:0.8;font-family:'DM Mono',monospace;}
+.wind-select{background:var(--input-bg);border:1px solid var(--border);border-radius:5px;padding:0.28rem 0.4rem;color:var(--salt);font-family:'DM Mono',monospace;font-size:0.78rem;outline:none;}
 .edit-row{display:flex;align-items:center;gap:0.45rem;padding:0.32rem 0;border-bottom:1px solid rgba(255,255,255,0.05);}
 .edit-row:last-child{border-bottom:none;}
 .edit-boat-name{flex:1;font-family:'DM Mono',monospace;font-size:0.85rem;}
@@ -488,7 +490,10 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
   <div class="tab-content" id="tab-entry">
     <div class="panel">
       <div class="race-header">
-        <span class="race-num" id="raceNumLabel">RACE #1</span>
+        <div style="display:flex;align-items:center;gap:0.8rem;flex-wrap:wrap;">
+          <span class="race-num" id="raceNumLabel">RACE #1</span>
+          <div id="entryWindSelects"></div>
+        </div>
         <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
           <button class="btn btn-secondary" onclick="openRaceListModal()" data-i18n="entryEditBtn">RACE着順編集</button>
           <button class="btn btn-gold" onclick="saveRace()" id="saveBtn" data-i18n="entrySaveBtn">保存</button>
@@ -591,6 +596,7 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
   <div class="modal">
     <div class="modal-title" id="editRaceTitle" data-i18n="raceEditTitle">RACE 編集</div>
     <div style="font-size:0.74rem;color:var(--muted);margin-bottom:0.7rem;" data-i18n="raceEditHint">順位またはステータスを変更できます</div>
+    <div id="editWindSelectsWrap" style="margin-bottom:0.8rem;"></div>
     <div id="editRaceForm"></div>
     <div class="modal-actions">
       <button class="btn btn-danger" onclick="deleteRace()" style="margin-right:auto;" data-i18n="modalDelete">削除</button>
@@ -604,6 +610,43 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
 <div class="toast" id="toast"></div>
 
 <script>
+// ── WIND DATA ─────────────────────────────────────────────────────────────────
+const WIND_DIRS = [
+  {deg:0,label:'北'},{deg:10,label:'北北東'},{deg:20,label:'北北東'},
+  {deg:30,label:'北東'},{deg:40,label:'北東'},{deg:50,label:'東北東'},
+  {deg:60,label:'東北東'},{deg:70,label:'東北東'},{deg:80,label:'東'},
+  {deg:90,label:'東'},{deg:100,label:'東南東'},{deg:110,label:'東南東'},
+  {deg:120,label:'南東'},{deg:130,label:'南東'},{deg:140,label:'南南東'},
+  {deg:150,label:'南南東'},{deg:160,label:'南'},{deg:170,label:'南'},
+  {deg:180,label:'南'},{deg:190,label:'南南西'},{deg:200,label:'南南西'},
+  {deg:210,label:'南西'},{deg:220,label:'南西'},{deg:230,label:'西南西'},
+  {deg:240,label:'西南西'},{deg:250,label:'西'},{deg:260,label:'西'},
+  {deg:270,label:'西'},{deg:280,label:'西北西'},{deg:290,label:'西北西'},
+  {deg:300,label:'北西'},{deg:310,label:'北西'},{deg:320,label:'北北西'},
+  {deg:330,label:'北北西'},{deg:340,label:'北'},{deg:350,label:'北北東'}
+];
+const WIND_SPEEDS = ['無風',1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20];
+function windSpeedOpts(cur){
+  return WIND_SPEEDS.map(v=>`<option value="${v}" ${String(cur)===String(v)?'selected':''}>${v==='無風'?'無風':v+' m/s'}</option>`).join('');
+}
+function windDirOpts(cur){
+  return '<option value="">—</option>'+WIND_DIRS.map(d=>`<option value="${d.deg}" ${String(cur)===String(d.deg)?'selected':''}>${d.deg}°（${d.label}）</option>`).join('');
+}
+function windSelectsHTML(speedId,dirId,speedVal,dirVal){
+  return `<div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
+    <span style="font-size:0.75rem;color:var(--muted);white-space:nowrap;">💨 風速</span>
+    <select id="${speedId}" class="wind-select" style="width:90px;">${windSpeedOpts(speedVal??'')}</select>
+    <span style="font-size:0.75rem;color:var(--muted);white-space:nowrap;">風向</span>
+    <select id="${dirId}" class="wind-select" style="width:130px;">${windDirOpts(dirVal??'')}</select>
+  </div>`;
+}
+function windLabel(speed,dir){
+  if(!speed&&(dir===''||dir===undefined||dir===null)) return '';
+  const sp=speed!==undefined&&speed!==''?(speed==='無風'?'無風':speed+'m/s'):'';
+  const dr=dir!==undefined&&dir!==''?(()=>{const d=WIND_DIRS.find(x=>String(x.deg)===String(dir));return d?`${dir}°（${d.label}）`:''})():'';
+  return [sp,dr].filter(Boolean).join(' / ');
+}
+
 // ── GLOBALS (Firebase functions assigned from module) ─────────────────────
 // scheduleSave, saveAsEvent, renderEventList, openViewEvent,
 // closeViewEvent, loadViewEvent, deleteViewEvent are set by the module above
@@ -866,6 +909,7 @@ function renderBoatThrowoutList(){
 // ── ENTRY ──────────────────────────────────────────────────────────────────
 function resetEntrySession(){
   document.getElementById('raceNumLabel').textContent=`RACE #${state.races.length+1}`;
+  document.getElementById('entryWindSelects').innerHTML=windSelectsHTML('entryWindSpeed','entryWindDir','','');
   currentRanked=[]; currentUnranked=state.boats.map(b=>b.id);
   const has=state.boats.length>0;
   document.getElementById('entryArea').style.display=has?'block':'none';
@@ -941,7 +985,9 @@ function saveRace(){
     if(!isP) fp++;
     return{boatId:item.boatId,rank:isP?null:fp,status:item.status||''};
   });
-  state.races.push({entries});
+  const windSpeed=document.getElementById('entryWindSpeed')?.value??'';
+  const windDir=document.getElementById('entryWindDir')?.value??'';
+  state.races.push({entries,windSpeed,windDir});
   saveState(); resetEntrySession(); renderResults();
   showToast(t('toastRaceSaved').replace('{n}',state.races.length));
 }
@@ -1088,7 +1134,9 @@ function openRaceListModal(){
   el.innerHTML=!state.races.length?`<div class="empty"><div class="empty-icon">🌊</div>${t('noFinish')}</div>`
     :state.races.map((r,i)=>{
       const top=r.entries.filter(e=>e.rank===1).map(e=>boatName(e.boatId)).join(', ');
-      return `<div class="race-card"><div class="race-card-info"><span class="race-pill">${t('racePill')} ${i+1}</span><span class="race-summary">${t('race1st')}${top||'—'} ／ ${r.entries.length}${t('raceBoats')}</span></div><button class="btn btn-secondary" onclick="openEditRace(${i})">${LANG==='en'?'Edit':'編集'}</button></div>`;
+      const wl=windLabel(r.windSpeed,r.windDir);
+      const commentHtml=wl?`<span class="race-comment">💨 ${escHtml(wl)}</span>`:'';
+      return `<div class="race-card"><div class="race-card-info"><span class="race-pill">${t('racePill')} ${i+1}</span><span class="race-summary">${t('race1st')}${top||'—'} ／ ${r.entries.length}${t('raceBoats')}</span>${commentHtml}</div><button class="btn btn-secondary" onclick="openEditRace(${i})">${LANG==='en'?'Edit':'編集'}</button></div>`;
     }).join('');
   document.getElementById('raceListModal').classList.add('open');
 }
@@ -1097,7 +1145,9 @@ function closeRaceListModal(){document.getElementById('raceListModal').classList
 function openEditRace(i){
   editingRaceIndex=i;
   document.getElementById('editRaceTitle').textContent=`${t('racePill')} ${i+1} ${LANG==='en'?'Edit':'編集'}`;
-  document.getElementById('editRaceForm').innerHTML=state.races[i].entries.map((e,j)=>`
+  const race=state.races[i];
+  document.getElementById('editWindSelectsWrap').innerHTML=windSelectsHTML('editWindSpeed','editWindDir',race.windSpeed??'',race.windDir??'');
+  document.getElementById('editRaceForm').innerHTML=race.entries.map((e,j)=>`
     <div class="edit-row">
       <span class="edit-boat-name">${escHtml(boatName(e.boatId))}</span>
       <input type="number" class="edit-rank-input" id="er_${j}" value="${e.rank||''}" min="1" placeholder="順位">
@@ -1112,6 +1162,8 @@ function openEditRace(i){
 function closeEditRace(){document.getElementById('editRaceModal').classList.remove('open');editingRaceIndex=null;}
 function saveEditRace(){
   if(editingRaceIndex===null) return;
+  state.races[editingRaceIndex].windSpeed=document.getElementById('editWindSpeed')?.value??'';
+  state.races[editingRaceIndex].windDir=document.getElementById('editWindDir')?.value??'';
   state.races[editingRaceIndex].entries.forEach((e,j)=>{
     e.rank=parseInt(document.getElementById(`er_${j}`).value)||null;
     e.status=document.getElementById(`es_${j}`).value;
