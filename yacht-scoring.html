@@ -1061,7 +1061,26 @@ function buildResultsHTML(st, forExport=false){
     <div style="font-family:'Bebas Neue',sans-serif;font-size:1.4rem;letter-spacing:0.15em;color:#a8dadc;">⛵ ${escHtml(st.seriesName||t('exportTitle'))}</div>
     ${dateStr?`<div style="font-family:'DM Mono',monospace;font-size:0.72rem;color:#4a6484;text-align:right;padding-top:0.3rem;">${escHtml(dateStr)}</div>`:''}
   </div>`:'';
-  return `${title}<table><thead><tr><th style="width:34px">#</th><th class="left">${t('colBoat')}</th>${hd}<th>${t('colTotal')}</th></tr></thead><tbody>${rows}</tbody></table>`;
+  // 風向・風速セクション
+  const hasWind = st.races.some(r => (r.windSpeed !== '' && r.windSpeed !== undefined && r.windSpeed !== null) || (r.windDir !== '' && r.windDir !== undefined && r.windDir !== null));
+  const windSection = hasWind ? (() => {
+    const windCells = st.races.map((r, i) => {
+      const sp = r.windSpeed !== undefined && r.windSpeed !== '' && r.windSpeed !== null ? (r.windSpeed === '無風' ? '無風' : r.windSpeed + ' m/s') : '—';
+      const dr = r.windDir !== undefined && r.windDir !== '' && r.windDir !== null ? (() => { const d = WIND_DIRS.find(x => String(x.deg) === String(r.windDir)); return d ? `${r.windDir}°（${d.label}）` : '—'; })() : '—';
+      return `<td class="score-cell" style="font-size:0.75rem;white-space:nowrap;">${sp}<br><span style="color:var(--muted);font-size:0.7rem;">${dr}</span></td>`;
+    }).join('');
+    return `<div style="margin-top:0.5rem;border-top:2px solid var(--border);padding-top:0.6rem;">
+      <table style="width:100%;"><tbody>
+        <tr>
+          <td style="width:34px;"></td>
+          <td class="left" style="font-size:0.75rem;color:var(--muted);white-space:nowrap;padding:0.3rem 0.5rem;">💨 風速<br><span style="font-size:0.7rem;">風向</span></td>
+          ${windCells}
+          <td class="score-cell"></td>
+        </tr>
+      </tbody></table>
+    </div>`;
+  })() : '';
+  return `${title}<table><thead><tr><th style="width:34px">#</th><th class="left">${t('colBoat')}</th>${hd}<th>${t('colTotal')}</th></tr></thead><tbody>${rows}</tbody></table>${windSection}`;
 }
 
 function renderResults(){
