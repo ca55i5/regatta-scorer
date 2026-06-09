@@ -1067,11 +1067,11 @@ function buildResultsHTML(st, forExport=false){
   const windTfoot = hasWind ? (() => {
     const speedCells = st.races.map(r => {
       const sp = r.windSpeed !== undefined && r.windSpeed !== '' && r.windSpeed !== null ? (r.windSpeed === '無風' ? '無風' : r.windSpeed + ' m/s') : '—';
-      return `<td class="score-cell" style="font-size:0.75rem;white-space:nowrap;">${sp}</td>`;
+      return `<td class="score-cell" style="font-size:0.75rem;white-space:nowrap;text-align:right;">${sp}</td>`;
     }).join('');
     const dirCells = st.races.map(r => {
       const dr = r.windDir !== undefined && r.windDir !== '' && r.windDir !== null ? (() => { const d = WIND_DIRS.find(x => String(x.deg) === String(r.windDir)); return d ? `${r.windDir}°<br>（${d.label}）` : '—'; })() : '—';
-      return `<td class="score-cell" style="font-size:0.72rem;color:var(--muted);white-space:nowrap;">${dr}</td>`;
+      return `<td class="score-cell" style="font-size:0.72rem;color:var(--muted);white-space:nowrap;text-align:right;">${dr}</td>`;
     }).join('');
     return `<tfoot>
       <tr style="border-top:2px solid var(--border);">
