@@ -1070,7 +1070,7 @@ function buildResultsHTML(st, forExport=false){
       return `<td class="score-cell" style="font-size:0.75rem;white-space:nowrap;">${sp}</td>`;
     }).join('');
     const dirCells = st.races.map(r => {
-      const dr = r.windDir !== undefined && r.windDir !== '' && r.windDir !== null ? (() => { const d = WIND_DIRS.find(x => String(x.deg) === String(r.windDir)); return d ? `${r.windDir}°（${d.label}）` : '—'; })() : '—';
+      const dr = r.windDir !== undefined && r.windDir !== '' && r.windDir !== null ? (() => { const d = WIND_DIRS.find(x => String(x.deg) === String(r.windDir)); return d ? `${r.windDir}°<br>（${d.label}）` : '—'; })() : '—';
       return `<td class="score-cell" style="font-size:0.72rem;color:var(--muted);white-space:nowrap;">${dr}</td>`;
     }).join('');
     return `<tfoot>
