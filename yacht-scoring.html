@@ -909,7 +909,8 @@ function renderBoatThrowoutList(){
 // ── ENTRY ──────────────────────────────────────────────────────────────────
 function resetEntrySession(){
   document.getElementById('raceNumLabel').textContent=`RACE #${state.races.length+1}`;
-  document.getElementById('entryWindSelects').innerHTML=windSelectsHTML('entryWindSpeed','entryWindDir','','');
+  const lastRace=state.races.length>0?state.races[state.races.length-1]:null;
+  document.getElementById('entryWindSelects').innerHTML=windSelectsHTML('entryWindSpeed','entryWindDir',lastRace?.windSpeed??'',lastRace?.windDir??'');
   currentRanked=[]; currentUnranked=state.boats.map(b=>b.id);
   const has=state.boats.length>0;
   document.getElementById('entryArea').style.display=has?'block':'none';
