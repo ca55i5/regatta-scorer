@@ -980,6 +980,19 @@ function renderEntryUI(){
   if (!currentRanked.length){list.innerHTML=`<div style="color:var(--muted);font-size:0.78rem;padding:0.35rem 0;">${t('noFinish')}</div>`;return;}
   let fp=0;
   list.innerHTML=currentRanked.map((item,idx)=>{
+    if(item.boatId===null){
+      // ブランク艇：登録済み艇のドロップダウンで選択
+      const opts=currentUnranked.map(id=>`<option value="${id}">${escHtml(boatName(id))}</option>`).join('');
+      fp++;
+      return `<div class="ranked-item" style="border-left:2px solid var(--gold);">
+        <span class="rank-num rank-n-c">${fp}</span>
+        <select class="penalty-select" style="flex:1;font-size:0.8rem;" onchange="assignBlankRank(${idx},this.value)">
+          <option value="">— 艇を選択（${escHtml(item.blankLabel||'?')}）—</option>
+          ${opts}
+        </select>
+        <button class="undo-btn" onclick="undoRanked(${idx})">✕</button>
+      </div>`;
+    }
     const isP=PENALTY_STATUSES.includes(item.status);
     if(!isP) fp++;
     const dr=isP?'—':fp;
@@ -1007,6 +1020,8 @@ function applyCommaRank(){
     if(boat && currentUnranked.includes(boat.id)){
       currentUnranked=currentUnranked.filter(x=>x!==boat.id);
       currentRanked.push({boatId:boat.id,status:''});
+    } else {
+      currentRanked.push({boatId:null,status:'',blankLabel:name});
     }
   });
   renderEntryUI();
@@ -1027,6 +1042,8 @@ function loadRankFile(e){
       if(boat && currentUnranked.includes(boat.id)){
         currentUnranked=currentUnranked.filter(x=>x!==boat.id);
         currentRanked.push({boatId:boat.id,status:''});
+      } else {
+        currentRanked.push({boatId:null,status:'',blankLabel:name});
       }
     });
     e.target.value='';
@@ -1035,6 +1052,14 @@ function loadRankFile(e){
   reader.readAsText(file,'UTF-8');
 }
 window.loadRankFile=loadRankFile;
+
+function assignBlankRank(idx,boatId){
+  if(!boatId) return;
+  currentUnranked=currentUnranked.filter(x=>x!==boatId);
+  currentRanked[idx]={boatId,status:''};
+  renderEntryUI();
+}
+window.assignBlankRank=assignBlankRank;
 
 function tapBoat(id){
   const psEl=document.getElementById(`ps_${id}`);
@@ -1049,15 +1074,19 @@ function changeRankedStatus(idx,val){
 }
 function undoRanked(idx){
   const item=currentRanked.splice(idx,1)[0];
-  const orig=state.boats.map(b=>b.id);
-  currentUnranked.push(item.boatId);
-  currentUnranked.sort((a,b)=>orig.indexOf(a)-orig.indexOf(b));
+  if(item.boatId!==null){
+    const orig=[...state.boats].sort((a,b)=>a.name.localeCompare(b.name,'ja')).map(b=>b.id);
+    currentUnranked.push(item.boatId);
+    currentUnranked.sort((a,b)=>orig.indexOf(a)-orig.indexOf(b));
+  }
   renderEntryUI();
 }
 
 function saveRace(){
   if (!state.boats.length) return;
   if (currentUnranked.length>0){showToast(t('toastRemainingPre')+currentUnranked.length+t('toastRemainingPost'));return;}
+  const blanks=currentRanked.filter(item=>item.boatId===null).length;
+  if(blanks>0){showToast(`未割り当てのブランク艇が${blanks}艇あります`);return;}
   let fp=0;
   const entries=currentRanked.map(item=>{
     const isP=PENALTY_STATUSES.includes(item.status);
