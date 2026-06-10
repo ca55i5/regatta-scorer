@@ -511,6 +511,8 @@ tr.winner td.left{color:var(--gold);font-weight:500;}
             <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem;">
               <input type="text" id="commaRankInput" placeholder="艇名をカンマ区切りで着順入力" style="flex:1;font-size:0.8rem;padding:0.35rem 0.5rem;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;color:var(--salt);" onkeydown="if(event.key==='Enter')applyCommaRank()">
               <button class="btn btn-secondary" style="font-size:0.78rem;padding:0.3rem 0.7rem;white-space:nowrap;" onclick="applyCommaRank()">適用</button>
+              <input type="file" id="rankFileInput" accept=".txt,.csv" style="display:none" onchange="loadRankFile(event)">
+              <button class="btn btn-secondary" style="font-size:0.78rem;padding:0.3rem 0.7rem;white-space:nowrap;" onclick="document.getElementById('rankFileInput').click()">📂</button>
             </div>
             <div class="unranked-pool" id="unrankedPool"></div>
           </div>
@@ -1010,6 +1012,29 @@ function applyCommaRank(){
   renderEntryUI();
 }
 window.applyCommaRank=applyCommaRank;
+
+function loadRankFile(e){
+  const file=e.target.files[0];
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const names=ev.target.result.split(/\r?\n/).map(n=>n.trim()).filter(Boolean);
+    document.getElementById('commaRankInput').value=names.join(',');
+    currentRanked=[];
+    currentUnranked=[...state.boats].sort((a,b)=>a.name.localeCompare(b.name,'ja')).map(b=>b.id);
+    names.forEach(name=>{
+      const boat=state.boats.find(b=>b.name===name);
+      if(boat && currentUnranked.includes(boat.id)){
+        currentUnranked=currentUnranked.filter(x=>x!==boat.id);
+        currentRanked.push({boatId:boat.id,status:''});
+      }
+    });
+    e.target.value='';
+    renderEntryUI();
+  };
+  reader.readAsText(file,'UTF-8');
+}
+window.loadRankFile=loadRankFile;
 
 function tapBoat(id){
   const psEl=document.getElementById(`ps_${id}`);
